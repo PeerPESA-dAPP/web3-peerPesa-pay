@@ -1,11 +1,20 @@
 "use client"
+import { useState, useEffect, useRef } from "react"
+import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi'
+import type { Connector } from 'wagmi'
 
-import { useState, useEffect } from "react"
+// Global flag to prevent multiple WalletConnect initializations across the entire app
+let walletConnectInitialized = false
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TransactionForms } from "./transaction-forms"
+import { EthereumProvider } from "@walletconnect/ethereum-provider"
+import { WalletConnectModal } from "@walletconnect/modal"
+import { WALLETCONNECT_CONFIG, STELLAR_CONFIG } from "@/lib/walletconnect-config"
+import { setupPolyfills } from "@/lib/polyfills"
+import { toast } from "@/hooks/use-toast"
 import {
   ArrowUpIcon,
   ArrowDownIcon,
@@ -21,6 +30,7 @@ import {
   HomeIcon,
   ActivityIcon,
   XIcon,
+  GlobeIcon,
 } from "lucide-react"
 
 interface Transaction {
@@ -83,6 +93,42 @@ export function WalletInterface() {
   const [walletAddress, setWalletAddress] = useState("")
   const [walletType, setWalletType] = useState("")
   const [showTransactionForms, setShowTransactionForms] = useState(false)
+  const [walletConnectProvider, setWalletConnectProvider] = useState<any>(null)
+  const [currentNetwork, setCurrentNetwork] = useState("ethereum")
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [availableAccounts, setAvailableAccounts] = useState<string[]>([])
+  const [selectedAccountIndex, setSelectedAccountIndex] = useState(0)
+  const isInitializing = useRef(false)
+
+  // Wagmi hooks
+  const { address, isConnected, chain } = useAccount()
+  const { connect, connectors, isPending } = useConnect()
+  const { disconnect } = useDisconnect()
+  const { switchChain } = useSwitchChain()
+
+  // Sync Wagmi state with component state
+  useEffect(() => {
+    if (isConnected && address) {
+      setIsWalletConnected(true)
+      setWalletAddress(address)
+      setWalletType("Wagmi")
+      setAvailableAccounts([address])
+      setSelectedAccountIndex(0)
+    } else {
+      setIsWalletConnected(false)
+      setWalletAddress("")
+      setWalletType("")
+      setAvailableAccounts([])
+      setSelectedAccountIndex(0)
+    }
+  }, [isConnected, address])
+
+  // Update current network when chain changes
+  useEffect(() => {
+    if (chain) {
+      setCurrentNetwork(chain.name)
+    }
+  }, [chain])
 
   const totalBalance = 0.0
   const celoBalance = 0.0
@@ -168,74 +214,522 @@ export function WalletInterface() {
   ]
 
   const connectMetaMask = async () => {
-    if (typeof window !== "undefined" && window.ethereum) {
-      try {
-        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" })
-        if (accounts.length > 0) {
-          setWalletAddress(accounts[0])
-          setWalletType("MetaMask")
-          setIsWalletConnected(true)
-          setShowWalletModal(false)
-          console.log("[v0] MetaMask connected:", accounts[0])
-        }
-      } catch (error) {
-        console.error("[v0] MetaMask connection failed:", error)
+    try {
+      setIsConnecting(true)
+      const metaMaskConnector = connectors.find(c => c.id === 'metaMask')
+      if (metaMaskConnector) {
+        await connect({ connector: metaMaskConnector })
+        setShowWalletModal(false)
+        toast({
+          title: "MetaMask Connected",
+          description: `Connected to MetaMask`,
+          variant: "default",
+        })
+      } else {
+        toast({
+          title: "MetaMask Required",
+          description: "Please install MetaMask extension to continue.",
+          variant: "destructive",
+        })
       }
-    } else {
-      alert("MetaMask is not installed. Please install MetaMask to continue.")
+    } catch (error) {
+      console.error("[v0] MetaMask connection failed:", error)
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect to MetaMask. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsConnecting(false)
     }
   }
 
+
+
+
+
+
   const connectWalletConnect = async () => {
     try {
-      console.log("[v0] WalletConnect integration would be implemented here")
-      setWalletAddress("0x" + Math.random().toString(16).substr(2, 40))
-      setWalletType("WalletConnect")
-      setIsWalletConnected(true)
-      setShowWalletModal(false)
+      setIsConnecting(true)
+      const walletConnectConnector = connectors.find(c => c.id === 'walletConnect')
+      if (walletConnectConnector) {
+        await connect({ connector: walletConnectConnector })
+        setShowWalletModal(false)
+        toast({
+          title: "WalletConnect Connected",
+          description: `Connected via WalletConnect`,
+          variant: "default",
+        })
+      } else {
+        toast({
+          title: "WalletConnect Error",
+          description: "WalletConnect connector not available.",
+          variant: "destructive",
+        })
+      }
     } catch (error) {
       console.error("[v0] WalletConnect connection failed:", error)
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect via WalletConnect. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsConnecting(false)
     }
   }
 
   const connectCoinbaseWallet = async () => {
     try {
-      console.log("[v0] Coinbase Wallet integration would be implemented here")
-      setWalletAddress("0x" + Math.random().toString(16).substr(2, 40))
-      setWalletType("Coinbase Wallet")
-      setIsWalletConnected(true)
-      setShowWalletModal(false)
+      setIsConnecting(true)
+      const coinbaseConnector = connectors.find(c => c.id === 'coinbaseWallet')
+      if (coinbaseConnector) {
+        await connect({ connector: coinbaseConnector })
+        setShowWalletModal(false)
+        toast({
+          title: "Coinbase Wallet Connected",
+          description: `Connected to Coinbase Wallet`,
+          variant: "default",
+        })
+      } else {
+        toast({
+          title: "Coinbase Wallet Required",
+          description: "Please install Coinbase Wallet extension to continue.",
+          variant: "destructive",
+        })
+      }
     } catch (error) {
       console.error("[v0] Coinbase Wallet connection failed:", error)
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect to Coinbase Wallet. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsConnecting(false)
     }
   }
 
   const connectStellarWallet = async () => {
     try {
-      console.log("[v0] Stellar wallet integration would be implemented here")
-      // Generate a mock Stellar address (starts with G)
-      const stellarAddress = "G" + Math.random().toString(36).substr(2, 55).toUpperCase()
-      setWalletAddress(stellarAddress)
-      setWalletType("Stellar Wallet")
-      setIsWalletConnected(true)
-      setShowWalletModal(false)
+      setIsConnecting(true)
+      
+      // Check if Freighter wallet is available (most common Stellar wallet)
+      if (typeof window !== "undefined" && (window as any).freighter) {
+        const freighter = (window as any).freighter
+        
+        // Check if Freighter is connected
+        const isConnected = await freighter.isConnected()
+        
+        if (!isConnected) {
+          // Request connection
+          await freighter.connect()
+        }
+        
+        // Get the public key
+        const publicKey = await freighter.getPublicKey()
+        
+        if (publicKey) {
+          setWalletAddress(publicKey)
+          setWalletType("Stellar Wallet")
+          setIsWalletConnected(true)
+          setShowWalletModal(false) // Close modal on successful connection
+          
+          toast({
+            title: "Stellar Wallet Connected",
+            description: `Connected to Stellar ${STELLAR_CONFIG.network}`,
+            variant: "default",
+          })
+        }
+      } else {
+        // Fallback: Show instructions for installing Freighter
+        setShowWalletModal(false) // Close modal
+        toast({
+          title: "Stellar Wallet Required",
+          description: "Please install Freighter wallet extension to connect to Stellar network",
+          variant: "destructive",
+        })
+      }
     } catch (error) {
       console.error("[v0] Stellar wallet connection failed:", error)
+      setShowWalletModal(false) // Close modal on error
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect to Stellar wallet. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
+  const switchNetwork = async (networkId: number) => {
+    try {
+      await switchChain({ chainId: networkId })
+      toast({
+        title: "Network Switched",
+        description: `Switched to ${getNetworkName(networkId)}`,
+        variant: "default",
+      })
+    } catch (error: any) {
+      console.error("Failed to switch network:", error)
+      toast({
+        title: "Network Switch Failed",
+        description: `Failed to switch to ${getNetworkName(networkId)}`,
+        variant: "destructive",
+      })
+    }
+  }
+
+  const getNetworkName = (chainId: number) => {
+    switch (chainId) {
+      case 1: return "Ethereum"
+      case 137: return "Polygon"
+      case 42161: return "Arbitrum"
+      case 10: return "OP Mainnet"
+      case 8453: return "Base"
+      case 56: return "BNB Smart Chain"
+      case 81457: return "Blast"
+      case 43114: return "Avalanche"
+      case 42220: return "Celo"
+      case 324: return "zkSync Era"
+      case 44787: return "Celo Testnet"
+      default: return "Ethereum"
+    }
+  }
+
+  const getChainConfig = (chainId: number) => {
+    switch (chainId) {
+      case 1: // Ethereum
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "Ethereum Mainnet",
+          nativeCurrency: {
+            name: "Ether",
+            symbol: "ETH",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[1]],
+          blockExplorerUrls: ["https://etherscan.io"],
+        }
+      case 137: // Polygon
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "Polygon",
+          nativeCurrency: {
+            name: "MATIC",
+            symbol: "MATIC",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[137]],
+          blockExplorerUrls: ["https://polygonscan.com"],
+        }
+      case 42161: // Arbitrum
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "Arbitrum One",
+          nativeCurrency: {
+            name: "Ether",
+            symbol: "ETH",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[42161]],
+          blockExplorerUrls: ["https://arbiscan.io"],
+        }
+      case 10: // OP Mainnet
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "OP Mainnet",
+          nativeCurrency: {
+            name: "Ether",
+            symbol: "ETH",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[10]],
+          blockExplorerUrls: ["https://optimistic.etherscan.io"],
+        }
+      case 8453: // Base
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "Base",
+          nativeCurrency: {
+            name: "Ether",
+            symbol: "ETH",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[8453]],
+          blockExplorerUrls: ["https://basescan.org"],
+        }
+      case 56: // BNB Smart Chain
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "BNB Smart Chain",
+          nativeCurrency: {
+            name: "BNB",
+            symbol: "BNB",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[56]],
+          blockExplorerUrls: ["https://bscscan.com"],
+        }
+      case 81457: // Blast
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "Blast",
+          nativeCurrency: {
+            name: "Ether",
+            symbol: "ETH",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[81457]],
+          blockExplorerUrls: ["https://blastscan.io"],
+        }
+      case 43114: // Avalanche
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "Avalanche",
+          nativeCurrency: {
+            name: "AVAX",
+            symbol: "AVAX",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[43114]],
+          blockExplorerUrls: ["https://snowtrace.io"],
+        }
+      case 42220: // Celo
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "Celo",
+          nativeCurrency: {
+            name: "CELO",
+            symbol: "CELO",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[42220]],
+          blockExplorerUrls: ["https://explorer.celo.org"],
+        }
+      case 324: // zkSync Era
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "zkSync Era",
+          nativeCurrency: {
+            name: "Ether",
+            symbol: "ETH",
+            decimals: 18,
+          },
+          rpcUrls: [WALLETCONNECT_CONFIG.rpcMap[324]],
+          blockExplorerUrls: ["https://explorer.zksync.io"],
+        }
+      case 44787: // Celo Testnet
+        return {
+          chainId: `0x${chainId.toString(16)}`,
+          chainName: "Celo Alfajores Testnet",
+          nativeCurrency: {
+            name: "CELO",
+            symbol: "CELO",
+            decimals: 18,
+          },
+          rpcUrls: [(WALLETCONNECT_CONFIG.rpcMap as any)[44787] || "https://alfajores-forno.celo-testnet.org"],
+          blockExplorerUrls: ["https://alfajores-blockscout.celo-testnet.org"],
+        }
+      default:
+        return null
+    }
+  }
+
+  const getWalletConnectSessions = async () => {
+    if (!walletConnectProvider) return []
+    
+    try {
+      // Get active sessions from WalletConnect
+      const sessions = walletConnectProvider.sessions || []
+      console.log("[v0] WalletConnect sessions:", sessions)
+      return sessions
+    } catch (error) {
+      console.error("[v0] Failed to get WalletConnect sessions:", error)
+      return []
+    }
+  }
+
+  const handleMultipleWalletConnectConnections = async () => {
+    if (!walletConnectProvider) return
+    
+    try {
+      // Check for existing connections
+      const sessions = await getWalletConnectSessions()
+      
+      if (sessions.length > 0) {
+        console.log("[v0] Found existing WalletConnect sessions:", sessions.length)
+        
+        // Get accounts from all sessions
+        const allAccounts: string[] = []
+        for (const session of sessions) {
+          try {
+            const accounts = session.namespaces?.eip155?.accounts || []
+            const ethAccounts = accounts
+              .filter((account: string) => account.startsWith('eip155:'))
+              .map((account: string) => account.split(':')[2])
+            allAccounts.push(...ethAccounts)
+          } catch (error) {
+            console.error("[v0] Error processing session:", error)
+          }
+        }
+        
+        // Remove duplicates
+        const uniqueAccounts = [...new Set(allAccounts)]
+        
+        if (uniqueAccounts.length > 0) {
+          setAvailableAccounts(uniqueAccounts)
+          setSelectedAccountIndex(0)
+          setWalletAddress(uniqueAccounts[0])
+          setWalletType("WalletConnect")
+          setIsWalletConnected(true)
+          
+          toast({
+            title: "Multiple WalletConnect Sessions",
+            description: `Found ${sessions.length} session${sessions.length > 1 ? 's' : ''} with ${uniqueAccounts.length} account${uniqueAccounts.length > 1 ? 's' : ''}`,
+            variant: "default",
+          })
+        }
+      }
+    } catch (error) {
+      console.error("[v0] Failed to handle multiple WalletConnect connections:", error)
+    }
+  }
+
+  const switchAccount = (accountIndex: number) => {
+    if (accountIndex >= 0 && accountIndex < availableAccounts.length) {
+      setSelectedAccountIndex(accountIndex)
+      setWalletAddress(availableAccounts[accountIndex])
+      
+      toast({
+        title: "Account Switched",
+        description: `Switched to ${availableAccounts[accountIndex].slice(0, 6)}...${availableAccounts[accountIndex].slice(-4)}`,
+        variant: "default",
+      })
     }
   }
 
   const disconnectWallet = () => {
+    disconnect()
     setWalletAddress("")
     setWalletType("")
     setIsWalletConnected(false)
+    setAvailableAccounts([])
+    setSelectedAccountIndex(0)
+    
+    // Reset global initialization flag when disconnecting WalletConnect
+    if (walletType === "WalletConnect") {
+      walletConnectInitialized = false
+    }
   }
 
   useEffect(() => {
+    const initializeWalletConnect = async () => {
+      try {
+        // Check if project ID is available before initializing
+        if (!WALLETCONNECT_CONFIG.projectId) {
+          console.warn("[v0] WalletConnect project ID not configured, skipping initialization")
+          return
+        }
+
+        // Prevent multiple initializations
+        if (walletConnectProvider || isInitializing.current || walletConnectInitialized) {
+          console.log("[v0] WalletConnect provider already initialized or initializing, skipping")
+          return
+        }
+
+        walletConnectInitialized = true
+        isInitializing.current = true
+        console.log("[v0] Initializing WalletConnect with project ID:", WALLETCONNECT_CONFIG.projectId)
+        
+        // Setup polyfills first
+        await setupPolyfills()
+        
+        const provider = await EthereumProvider.init({
+          projectId: WALLETCONNECT_CONFIG.projectId,
+          chains: WALLETCONNECT_CONFIG.chains,
+          optionalChains: WALLETCONNECT_CONFIG.chains as [number, ...number[]],
+          showQrModal: true,
+          rpcMap: WALLETCONNECT_CONFIG.rpcMap,
+        })
+
+        setWalletConnectProvider(provider)
+        console.log("[v0] WalletConnect provider initialized successfully")
+
+        // Check for existing connections
+        if (provider.connected) {
+          try {
+            const accounts = await provider.request({ method: "eth_accounts" }) as string[]
+            if (accounts.length > 0) {
+              setAvailableAccounts(accounts)
+              setSelectedAccountIndex(0)
+              setWalletAddress(accounts[0])
+              setWalletType("WalletConnect")
+              setIsWalletConnected(true)
+              console.log("[v0] Restored existing WalletConnect connection with accounts:", accounts)
+            }
+          } catch (error) {
+            console.error("[v0] Failed to get existing WalletConnect accounts:", error)
+          }
+        }
+
+        // Also check for multiple sessions
+        await handleMultipleWalletConnectConnections()
+
+        // Set up event listeners
+        provider.on("accountsChanged", (accounts: string[]) => {
+          console.log("[v0] WalletConnect accounts changed:", accounts)
+          if (accounts.length > 0) {
+            setAvailableAccounts(accounts)
+            // Keep the same selected account index if it still exists, otherwise reset to 0
+            const newIndex = selectedAccountIndex < accounts.length ? selectedAccountIndex : 0
+            setSelectedAccountIndex(newIndex)
+            setWalletAddress(accounts[newIndex])
+            setWalletType("WalletConnect")
+            setIsWalletConnected(true)
+          } else {
+            disconnectWallet()
+          }
+        })
+
+        provider.on("chainChanged", (chainId: string) => {
+          console.log("[v0] WalletConnect chain changed:", chainId)
+          setCurrentNetwork(getNetworkName(parseInt(chainId, 16)))
+        })
+
+        provider.on("disconnect", () => {
+          console.log("[v0] WalletConnect disconnected")
+          disconnectWallet()
+        })
+      } catch (error) {
+        console.error("[v0] Failed to initialize WalletConnect:", error)
+        console.error("[v0] Error details:", {
+          message: (error as Error).message,
+          stack: (error as Error).stack,
+          config: WALLETCONNECT_CONFIG
+        })
+        walletConnectInitialized = false
+        isInitializing.current = false
+      } finally {
+        isInitializing.current = false
+      }
+    }
+
+    // Initialize WalletConnect on component mount
+    initializeWalletConnect()
+    console.log("--------------------------------",window.ethereum,"--------------------------------")
+  }, []) // Empty dependency array to run only once on mount
+
+  useEffect(() => {
     const checkWalletConnection = async () => {
-      if (typeof window !== "undefined" && window.ethereum) {
+      if (typeof window !== "undefined" && window.ethereum && !isWalletConnected) {
         try {
           const accounts = await window.ethereum.request({ method: "eth_accounts" })
           if (accounts.length > 0) {
+            setAvailableAccounts(accounts)
+            setSelectedAccountIndex(0)
             setWalletAddress(accounts[0])
             setWalletType("MetaMask")
             setIsWalletConnected(true)
@@ -245,8 +739,12 @@ export function WalletInterface() {
         }
       }
     }
-    checkWalletConnection()
-  }, [])
+    
+    // Only check if not already connected
+    if (!isWalletConnected) {
+      checkWalletConnection()
+    }
+  }, [isWalletConnected])
 
   const handleWalletConnect = (walletType: string) => {
     switch (walletType) {
@@ -255,9 +753,6 @@ export function WalletInterface() {
         break
       case "WalletConnect":
         connectWalletConnect()
-        break
-      case "Coinbase Wallet":
-        connectCoinbaseWallet()
         break
       case "Stellar Wallet":
         connectStellarWallet()
@@ -296,9 +791,17 @@ export function WalletInterface() {
               ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
               : "bg-[#19B17A] hover:bg-[#158f68] text-white"
           }`}
-          onClick={() => (isWalletConnected ? disconnectWallet() : setShowWalletModal(true))}
+          onClick={() => {
+            console.log("Connect wallet clicked, isWalletConnected:", isWalletConnected)
+            if (isWalletConnected) {
+              disconnectWallet()
+            } else {
+              console.log("Setting showWalletModal to true")
+              setShowWalletModal(true)
+            }
+          }}
         >
-          <LinkIcon className="h-4 w-4" />
+          <WalletIcon className="h-4 w-4" />
           {isWalletConnected ? `${walletType}` : "Connect Wallet"}
         </Button>
       </div>
@@ -626,6 +1129,162 @@ export function WalletInterface() {
                   </Badge>
                 </div>
 
+                {/* Account Selection */}
+                {isWalletConnected && availableAccounts.length > 1 && (
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <WalletIcon className="h-4 w-4 text-blue-500" />
+                        <div>
+                          <p className="font-medium text-gray-900">Account</p>
+                          <p className="text-sm text-gray-600">
+                            {availableAccounts.length} account{availableAccounts.length > 1 ? 's' : ''} available
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {availableAccounts.map((account, index) => (
+                        <button
+                          key={account}
+                          onClick={() => switchAccount(index)}
+                          className={`w-full px-3 py-2 text-sm rounded-md border text-left ${
+                            index === selectedAccountIndex
+                              ? "bg-blue-50 text-blue-700 border-blue-200"
+                              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono">
+                              {account.slice(0, 6)}...{account.slice(-4)}
+                            </span>
+                            {index === selectedAccountIndex && (
+                              <span className="text-xs text-blue-600">Active</span>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Network Selection */}
+                {isWalletConnected && (walletType === "MetaMask" || walletType === "WalletConnect") && (
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <GlobeIcon className="h-4 w-4 text-purple-500" />
+                        <div>
+                          <p className="font-medium text-gray-900">Network</p>
+                          <p className="text-sm text-gray-600">{currentNetwork}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => switchNetwork(1)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "Ethereum"
+                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        Ethereum
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(137)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "Polygon"
+                            ? "bg-purple-50 text-purple-700 border-purple-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        Polygon
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(42161)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "Arbitrum"
+                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        Arbitrum
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(10)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "OP Mainnet"
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        OP Mainnet
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(8453)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "Base"
+                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        Base
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(56)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "BNB Smart Chain"
+                            ? "bg-yellow-50 text-yellow-700 border-yellow-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        BNB Chain
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(81457)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "Blast"
+                            ? "bg-orange-50 text-orange-700 border-orange-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        Blast
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(43114)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "Avalanche"
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        Avalanche
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(42220)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "Celo"
+                            ? "bg-yellow-50 text-yellow-700 border-yellow-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        Celo
+                      </button>
+                      <button
+                        onClick={() => switchNetwork(324)}
+                        className={`px-3 py-2 text-xs rounded-md border ${
+                          currentNetwork === "zkSync Era"
+                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        zkSync Era
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <TrendingUpIcon className="h-4 w-4 text-blue-500" />
@@ -671,56 +1330,52 @@ export function WalletInterface() {
 
             <div className="p-6 space-y-4">
               <p className="text-sm text-gray-600 mb-6">Choose your preferred wallet to connect</p>
-
-              {/* MetaMask Option */}
-              <Button
-                variant="outline"
-                className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
-                onClick={() => handleWalletConnect("MetaMask")}
-              >
-                <div className="h-10 w-10 bg-orange-100 rounded-full flex items-center justify-center">
-                  <WalletIcon className="h-5 w-5 text-orange-600" />
-                </div>
-                <div className="text-left">
-                  <p className="font-semibold text-gray-900">MetaMask</p>
-                  <p className="text-sm text-gray-600">Browser extension</p>
-                </div>
-              </Button>
-
-              {/* WalletConnect Option */}
-              <Button
-                variant="outline"
-                className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
-                onClick={() => handleWalletConnect("WalletConnect")}
-              >
-                <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                  <LinkIcon className="h-5 w-5 text-blue-600" />
-                </div>
-                <div className="text-left">
-                  <p className="font-semibold text-gray-900">WalletConnect</p>
-                  <p className="text-sm text-gray-600">Mobile wallets</p>
-                </div>
-              </Button>
-
-              {/* Coinbase Wallet Option */}
-              <Button
-                variant="outline"
-                className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
-                onClick={() => handleWalletConnect("Coinbase Wallet")}
-              >
-                <div className="h-10 w-10 bg-purple-100 rounded-full flex items-center justify-center">
-                  <WalletIcon className="h-4 w-4 text-purple-600" />
-                </div>
-                <div className="text-left">
-                  <p className="font-semibold text-gray-900">Coinbase Wallet</p>
-                  <p className="text-sm text-gray-600">Self-custody wallet</p>
-                </div>
-              </Button>
+              
+              {connectors.map((connector) => (
+                <Button
+                  key={connector.id}
+                  variant="outline"
+                  className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
+                  onClick={() => {
+                    if (connector.id === 'metaMask') {
+                      connectMetaMask()
+                    } else if (connector.id === 'walletConnect') {
+                      connectWalletConnect()
+                    } else if (connector.id === 'coinbaseWallet') {
+                      connectCoinbaseWallet()
+                    }
+                  }}
+                  disabled={isPending}
+                >
+                  <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                    connector.id === 'metaMask' ? 'bg-orange-100' :
+                    connector.id === 'walletConnect' ? 'bg-blue-100' :
+                    connector.id === 'coinbaseWallet' ? 'bg-purple-100' : 'bg-gray-100'
+                  }`}>
+                    <WalletIcon className={`h-5 w-5 ${
+                      connector.id === 'metaMask' ? 'text-orange-600' :
+                      connector.id === 'walletConnect' ? 'text-blue-600' :
+                      connector.id === 'coinbaseWallet' ? 'text-purple-600' : 'text-gray-600'
+                    }`} />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-semibold text-gray-900">
+                      {isPending ? "Connecting..." : connector.name}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {connector.id === 'metaMask' ? 'Browser extension' :
+                       connector.id === 'walletConnect' ? 'Mobile wallets' :
+                       connector.id === 'coinbaseWallet' ? 'Self-custody wallet' : 'Wallet'}
+                    </p>
+                  </div>
+                </Button>
+              ))}
 
               <Button
                 variant="outline"
                 className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
-                onClick={() => handleWalletConnect("Stellar Wallet")}
+                onClick={() => connectStellarWallet()}
+                disabled={isConnecting}
               >
                 <div className="h-10 w-10 bg-yellow-100 rounded-full flex items-center justify-center">
                   <span className="text-sm font-bold text-yellow-600">XLM</span>

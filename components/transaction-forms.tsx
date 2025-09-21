@@ -44,10 +44,51 @@ export function TransactionForms({ onBack, isWalletConnected, walletType, onConn
   const [phoneNumber, setPhoneNumber] = useState("")
 
   const cryptoAssets = [
+    // Ethereum
     { symbol: "ETH", name: "Ethereum", network: "Ethereum", icon: "🔷" },
     { symbol: "USDC", name: "USD Coin", network: "Ethereum", icon: "💵" },
     { symbol: "USDT", name: "Tether", network: "Ethereum", icon: "💰" },
-    { symbol: "axlUSDC", name: "Axelar USDC", network: "Osmosis", icon: "🌊" },
+    
+    // Polygon
+    { symbol: "MATIC", name: "Polygon", network: "Polygon", icon: "🔺" },
+    { symbol: "USDC", name: "USD Coin", network: "Polygon", icon: "💵" },
+    
+    // Arbitrum
+    { symbol: "ETH", name: "Ethereum", network: "Arbitrum", icon: "🔷" },
+    { symbol: "ARB", name: "Arbitrum", network: "Arbitrum", icon: "🔵" },
+    
+    // OP Mainnet
+    { symbol: "ETH", name: "Ethereum", network: "OP Mainnet", icon: "🔷" },
+    { symbol: "OP", name: "Optimism", network: "OP Mainnet", icon: "🔴" },
+    
+    // Base
+    { symbol: "ETH", name: "Ethereum", network: "Base", icon: "🔷" },
+    { symbol: "USDC", name: "USD Coin", network: "Base", icon: "💵" },
+    
+    // BNB Smart Chain
+    { symbol: "BNB", name: "BNB", network: "BNB Smart Chain", icon: "🟡" },
+    { symbol: "USDT", name: "Tether", network: "BNB Smart Chain", icon: "💰" },
+    
+    // Blast
+    { symbol: "ETH", name: "Ethereum", network: "Blast", icon: "🔷" },
+    { symbol: "USDB", name: "Blast USD", network: "Blast", icon: "💵" },
+    
+    // Avalanche
+    { symbol: "AVAX", name: "Avalanche", network: "Avalanche", icon: "🔺" },
+    { symbol: "USDC", name: "USD Coin", network: "Avalanche", icon: "💵" },
+    
+    // Celo
+    { symbol: "CELO", name: "Celo", network: "Celo", icon: "🌾" },
+    { symbol: "cUSD", name: "Celo Dollar", network: "Celo", icon: "💲" },
+    { symbol: "cEUR", name: "Celo Euro", network: "Celo", icon: "💶" },
+    
+    // zkSync Era
+    { symbol: "ETH", name: "Ethereum", network: "zkSync Era", icon: "🔷" },
+    { symbol: "USDC", name: "USD Coin", network: "zkSync Era", icon: "💵" },
+    
+    // Stellar
+    { symbol: "XLM", name: "Stellar Lumens", network: "Stellar", icon: "⭐" },
+    { symbol: "USDC", name: "USD Coin", network: "Stellar", icon: "💵" },
   ]
 
   const routes = [
@@ -271,7 +312,7 @@ export function TransactionForms({ onBack, isWalletConnected, walletType, onConn
                       <span className="font-medium font-mono text-sm">{sendAddress || "Not specified"}</span>
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                      <span className="text-gray-600">Exchange Rate</span>
+                      <span className="text-gray-600">Ex`chan`ge Rate</span>
                       <span className="font-medium">1 CELO ~ 5.2938 ZAR</span>
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
@@ -282,7 +323,7 @@ export function TransactionForms({ onBack, isWalletConnected, walletType, onConn
                       <span className="text-gray-600">Transfer Time</span>
                       <span className="font-medium">5 minutes</span>
                     </div>
-                    <div className="flex justify-between items-center py-3 bg-gray-50 rounded-lg px-4">
+                    <div className="flex justify-between items-center py-3 bg-gray-50 px-4">
                       <span className="font-semibold">Total Receive</span>
                       <span className="font-bold text-lg">0 ZAR</span>
                     </div>
@@ -313,7 +354,7 @@ export function TransactionForms({ onBack, isWalletConnected, walletType, onConn
                       <span className="text-gray-600">Time</span>
                       <span className="font-medium">~2m</span>
                     </div>
-                    <div className="flex justify-between items-center py-3 bg-gray-50 rounded-lg px-4">
+                    <div className="flex justify-between items-center py-3 bg-gray-50 px-4">
                       <span className="font-semibold">Total Receive</span>
                       <span className="font-bold text-lg">1267.34 {receiveCurrency}</span>
                     </div>
@@ -338,7 +379,7 @@ export function TransactionForms({ onBack, isWalletConnected, walletType, onConn
                       <span className="text-gray-600">Slippage</span>
                       <span className="font-medium">1%</span>
                     </div>
-                    <div className="flex justify-between items-center py-3 bg-gray-50 rounded-lg px-4">
+                    <div className="flex justify-between items-center py-3 bg-gray-50 px-4">
                       <span className="font-semibold">You'll Receive</span>
                       <span className="font-bold text-lg">0 USDC</span>
                     </div>
