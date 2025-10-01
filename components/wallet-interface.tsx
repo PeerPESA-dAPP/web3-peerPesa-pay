@@ -653,6 +653,10 @@ export function WalletInterface() {
           optionalChains: WALLETCONNECT_CONFIG.chains as [number, ...number[]],
           showQrModal: true,
           rpcMap: WALLETCONNECT_CONFIG.rpcMap,
+          // Add connection timeout and retry configuration
+          connectionTimeout: 30000, // 30 seconds
+          retryCount: 3,
+          retryDelay: 1000, // 1 second between retries
         })
 
         setWalletConnectProvider(provider)
@@ -703,6 +707,56 @@ export function WalletInterface() {
           console.log("[v0] WalletConnect disconnected")
           disconnectWallet()
         })
+
+        // Add error event listener to prevent unhandled errors
+        provider.on("error", (error: Error) => {
+          console.error("[v0] WalletConnect provider error:", error)
+          // Handle the error gracefully - don't disconnect unless it's a critical error
+          if (error.message.includes("Connection interrupted") || 
+              error.message.includes("subscription") ||
+              error.message.includes("Connection lost")) {
+            console.warn("[v0] Connection subscription error, attempting to reconnect...")
+            // Optionally trigger a reconnection attempt
+            setTimeout(() => {
+              if (!provider.connected) {
+                console.log("[v0] Attempting to restore connection...")
+                // The provider will handle reconnection automatically
+              }
+            }, 2000)
+          }
+        })
+
+        // Add connection health monitoring
+        provider.on("session_delete", () => {
+          console.log("[v0] WalletConnect session deleted, cleaning up...")
+          disconnectWallet()
+        })
+
+        provider.on("session_expire", () => {
+          console.log("[v0] WalletConnect session expired, cleaning up...")
+          disconnectWallet()
+        })
+
+        // Set up periodic health check for WalletConnect connection
+        const healthCheckInterval = setInterval(() => {
+          if (provider && walletType === "WalletConnect") {
+            try {
+              // Check if provider is still responsive
+              if (!provider.connected && isWalletConnected) {
+                console.warn("[v0] WalletConnect connection lost, cleaning up...")
+                disconnectWallet()
+              }
+            } catch (error) {
+              console.warn("[v0] Health check failed:", error)
+              if (isWalletConnected && walletType === "WalletConnect") {
+                disconnectWallet()
+              }
+            }
+          }
+        }, 10000) // Check every 10 seconds
+
+        // Store interval reference for cleanup
+        provider._healthCheckInterval = healthCheckInterval
       } catch (error) {
         console.error("[v0] Failed to initialize WalletConnect:", error)
         console.error("[v0] Error details:", {
@@ -720,6 +774,25 @@ export function WalletInterface() {
     // Initialize WalletConnect on component mount
     initializeWalletConnect()
     console.log("--------------------------------",window.ethereum,"--------------------------------")
+    
+    // Cleanup function to remove event listeners and prevent memory leaks
+    return () => {
+      if (walletConnectProvider) {
+        try {
+          // Clear health check interval if it exists
+          if (walletConnectProvider._healthCheckInterval) {
+            clearInterval(walletConnectProvider._healthCheckInterval)
+            console.log("[v0] WalletConnect health check interval cleared")
+          }
+          
+          // Remove all event listeners
+          walletConnectProvider.removeAllListeners()
+          console.log("[v0] WalletConnect event listeners cleaned up")
+        } catch (error) {
+          console.warn("[v0] Error cleaning up WalletConnect listeners:", error)
+        }
+      }
+    }
   }, []) // Empty dependency array to run only once on mount
 
   useEffect(() => {

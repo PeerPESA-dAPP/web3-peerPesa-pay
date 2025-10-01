@@ -1,5 +1,5 @@
 "use client"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,10 +23,11 @@ interface TransactionFormsProps {
   isWalletConnected: boolean
   walletType: string
   onConnectWallet: () => void
+  transactionType: string
 }
 
-export function TransactionForms({ onBack, isWalletConnected, walletType, onConnectWallet }: TransactionFormsProps) {
-  const [activeTab, setActiveTab] = useState("send")
+export function TransactionForms({ onBack, isWalletConnected, walletType, onConnectWallet, transactionType }: TransactionFormsProps) {
+  const [activeTab, setActiveTab] = useState(transactionType)
   const [showReview, setShowReview] = useState(false)
   const [sendAmount, setSendAmount] = useState("")
   const [sendAddress, setSendAddress] = useState("")
@@ -126,37 +127,17 @@ export function TransactionForms({ onBack, isWalletConnected, walletType, onConn
     setShowReview(false)
   }
 
-  return (
-    <div className="max-w-md mx-auto min-h-screen bg-gray-50 pb-20">
-      {/* Header */}
-      <div className="h-[50px] px-6 flex items-center justify-between bg-white">
-        {showReview ? (
-          <Button variant="ghost" onClick={handleBackFromReview} className="p-0">
-            <ArrowLeftIcon className="h-5 w-5" />
-            <span className="ml-2">Back</span>
-          </Button>
-        ) : (
-          <img src="/images/peerpesa-logo.png" alt="PeerPesa" className="h-[50px] min-w-[140px] object-contain" />
-        )}
-        <Button
-          variant={isWalletConnected ? "outline" : "default"}
-          size="sm"
-          className={`flex items-center gap-2 cursor-pointer ${
-            isWalletConnected
-              ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-              : "bg-[#19B17A] hover:bg-[#158f68] text-white"
-          }`}
-          onClick={onConnectWallet}
-        >
-          <LinkIcon className="h-4 w-4" />
-          {isWalletConnected ? walletType : "Connect Wallet"}
-        </Button>
-      </div>
 
+  useEffect(() => {
+    setActiveTab(transactionType)
+  }, [transactionType])
+
+  return (
+    <div className="max-w-md mx-auto min-h-screen bg-gray-50 pb-7">
       {/* Main Content */}
       <div className="p-6">
         {!showReview && (
-          <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="grid grid-cols-3 gap-3 mb-2">
             <Button
               variant={activeTab === "send" ? "default" : "outline"}
               className={`h-12 flex flex-col items-center justify-center gap-1 cursor-pointer ${
@@ -168,7 +149,7 @@ export function TransactionForms({ onBack, isWalletConnected, walletType, onConn
             >
               <div className="flex items-center gap-1">
                 <SendIcon className="h-4 w-4" />
-                <span className="text-xs">Send Money</span>
+                <span className="text-xs">Send Money </span>
               </div>
             </Button>
             <Button
