@@ -346,6 +346,7 @@ export function ThirdwebWalletInterface() {
     }
   }
 
+  
   // Function to fetch Stellar wallet balance
   const fetchStellarBalance = async (address: string) => {
     try {
