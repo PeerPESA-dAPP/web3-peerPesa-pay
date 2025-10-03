@@ -4,7 +4,8 @@ import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
 import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
-import { WagmiWrapper } from "@/components/wagmi-wrapper"
+import { ThirdwebProviderWrapper } from "@/components/thirdweb-provider"
+import { GlobalErrorHandler } from "@/components/global-error-handler"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -24,10 +25,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
-        <WagmiWrapper>
-          <Suspense fallback={null}>{children}</Suspense>
-          <Analytics />
-        </WagmiWrapper>
+        <GlobalErrorHandler>
+          <ThirdwebProviderWrapper>
+            <Suspense fallback={null}>{children}</Suspense>
+            <Analytics />
+          </ThirdwebProviderWrapper>
+        </GlobalErrorHandler>
       </body>
     </html>
   )
