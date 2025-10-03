@@ -1,12 +1,13 @@
+
 {
   "name": "my-v0-project",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev",
+    "dev": "next dev -p 3008",
     "lint": "next lint",
-    "start": "next start"
+    "start": "next start -p 3008"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
