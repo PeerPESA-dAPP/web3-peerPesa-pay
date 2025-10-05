@@ -1005,10 +1005,11 @@ export function ThirdwebWalletInterface() {
         {/* Balance Card */}
         <div className="px-6 pt-8">
           <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
-            <CardContent className="p-4 text-center">
+            <CardContent className="py-0 px-4 text-center">
               <p className="text-sm text-gray-600 mb-1">Your Balance</p>
-
               <div className="flex items-center justify-center gap-2">
+
+
                   <p className="text-2xl font-bold text-gray-900">
                     {convertAmount(usdValue) || ''}   {` ${selectedCurrency}`}
                   </p>
