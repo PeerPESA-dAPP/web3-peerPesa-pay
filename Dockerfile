@@ -1,11 +1,20 @@
 # Step 1: Build stage
 FROM node:current-alpine AS builder
 
+# Install Python and build tools
+RUN apk add --no-cache python3 make g++ bash
+
 WORKDIR /app
 
 # Copy package files and install dependencies
 COPY package*.json ./
-RUN npm install
+
+# Silence npm audit/funding/deprecation warnings
+RUN npm config set loglevel=error && \
+    npm config set fund false && \
+    npm config set audit false
+
+RUN npm install  --legacy-peer-deps
 
 # Copy the rest of the app
 COPY . .
