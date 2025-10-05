@@ -1,8 +1,9 @@
 # Step 1: Build stage
 FROM node:current-alpine AS builder
 
-# Install Python and build tools
-RUN apk add --no-cache python3 make g++ bash
+# Install build tools and linux headers
+RUN apk add --no-cache python3 make g++ bash linux-headers
+
 
 WORKDIR /app
 
