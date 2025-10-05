@@ -1,9 +1,8 @@
 # Step 1: Build stage
 FROM node:current-alpine AS builder
 
-# Install build tools and linux headers
-RUN apk add --no-cache python3 make g++ bash linux-headers
-
+# Install build tools, linux headers, and libudev development package
+RUN apk add --no-cache python3 make g++ bash linux-headers eudev-dev
 
 WORKDIR /app
 
@@ -15,12 +14,13 @@ RUN npm config set loglevel=error && \
     npm config set fund false && \
     npm config set audit false
 
-RUN npm install  --legacy-peer-deps
+# Install dependencies
+RUN npm install --legacy-peer-deps
 
 # Copy the rest of the app
 COPY . .
 
-# Build Next.js
+# Build the app (Next.js or any Node build process)
 RUN npm run build
 
 # Step 2: Run stage
@@ -32,5 +32,6 @@ ENV NODE_ENV=production
 # Copy built app from builder
 COPY --from=builder /app ./
 
-EXPOSE 3019
+EXPOSE 3008
+
 CMD ["npm", "start"]
