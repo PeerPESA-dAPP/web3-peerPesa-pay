@@ -17,6 +17,7 @@ RUN npm config set loglevel=error && \
 # Install dependencies
 RUN npm install --legacy-peer-deps
 
+
 # Copy the rest of the app
 COPY . .
 
@@ -24,7 +25,8 @@ COPY . .
 RUN rm -rf .next
 
 # Build the app (Next.js or any Node build process)
-RUN npm run build
+# RUN npm run build
+RUN NODE_OPTIONS="--max-old-space-size=1024" npm run build
 
 # Step 2: Run stage
 FROM node:current-alpine AS runner
