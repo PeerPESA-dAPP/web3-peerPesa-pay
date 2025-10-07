@@ -119,6 +119,8 @@ export function ThirdwebWalletInterface() {
 
   // Supported tokens state
   const [supportedTokens, setSupportedTokens] = useState<any[]>([])
+  const [supportedSendTokens, setSupportedSendTokens] = useState<any[]>([])
+  const [supportedSendFiat, setSupportedSendFiat] = useState<any[]>([])
   const [supportedTokensLoading, setSupportedTokensLoading] = useState(false)
   
   const [stellarAddress, setStellarAddress] = useState<string | null>(null)
@@ -166,11 +168,17 @@ export function ThirdwebWalletInterface() {
 
   // Function to programmatically open the ConnectWallet modal
   const openConnectWallet = () => {
-    // This will trigger the ConnectWallet component's internal modal
-    // We can use a ref or dispatch a custom event to trigger it
-    const connectButton = document.querySelector('[data-testid="connect-wallet"]') || document.querySelector('button[class*="connect"]')
-    if (connectButton && connectButton instanceof HTMLElement) {
-      connectButton.click()
+    // Find the hidden thirdweb ConnectWallet button and click it
+    const container = document.querySelector('#thirdweb-connect-wallet-btn')
+    if (container) {
+      const connectButton = container.querySelector('button')
+      if (connectButton) {
+        connectButton.click()
+      } else {
+        console.warn('ConnectWallet button not found inside container')
+      }
+    } else {
+      console.warn('ConnectWallet container not found')
     }
   }
 
@@ -558,12 +566,15 @@ export function ThirdwebWalletInterface() {
 
   // Fetch supported tokens when wallet connects or token balances change
   useEffect(() => {
+    
     if (isConnected && address && chain) {
-      fetchSupportedTokens()
+      fetchSupportedTokens()  
     } else {
-      setSupportedTokens([])
+      setSupportedTokens(currencies)
     }
-  }, [isConnected, address, chain, nativeBalance])
+    setSupportedSendFiat(currencies.filter((currency: any) => currency.token_type === "fiat" && currency.status === "active"));
+
+  }, [isConnected, address, chain, nativeBalance, currencies])
 
   // Handle click outside currency dropdown
   useEffect(() => {
@@ -654,61 +665,7 @@ export function ThirdwebWalletInterface() {
     
     try {
       setSupportedTokensLoading(true)
-      
-      // Get supported tokens for the current chain
-      const tokens = []
-      
-      // Add native token (ETH, MATIC, etc.)
-      if (nativeBalance) {
-        tokens.push({
-          address: "0x0000000000000000000000000000000000000000", // Native token address
-          name: chain.nativeCurrency?.name || "Native Token",
-          symbol: chain.nativeCurrency?.symbol || "ETH",
-          decimals: chain.nativeCurrency?.decimals || 18,
-          balance: nativeBalance.value,
-          balanceFormatted: nativeBalance.displayValue,
-          type: "native",
-          chainId: chain.chainId,
-          chainName: chain.name
-        })
-      }
-      
-      // For now, we'll add some common tokens manually
-      // In a real implementation, you might want to use a token list API
-      // or get tokens from the user's transaction history
-      const commonTokens = [
-        // USDC (example)
-        {
-          address: "0xA0b86a33E6441d9C7C4b7C8B2e8e8e8e8e8e8e8e", // Example address
-          name: "USD Coin",
-          symbol: "USDC",
-          decimals: 6,
-          balance: "0",
-          balanceFormatted: "0.00",
-          type: "erc20",
-          chainId: chain.chainId,
-          chainName: chain.name
-        },
-        // USDT (example)
-        {
-          address: "0xB0c86a33E6441d9C7C4b7C8B2e8e8e8e8e8e8e8e", // Example address
-          name: "Tether USD",
-          symbol: "USDT",
-          decimals: 6,
-          balance: "0",
-          balanceFormatted: "0.00",
-          type: "erc20",
-          chainId: chain.chainId,
-          chainName: chain.name
-        }
-      ]
-      
-      // Add common tokens (you can extend this list)
-      tokens.push(...commonTokens)
-      
-      setSupportedTokens(tokens)
-      console.log('Supported tokens fetched:', tokens)
-      
+      setSupportedTokens(currencies)
     } catch (error) {
       console.error('Error fetching supported tokens:', error)
     } finally {
@@ -721,7 +678,7 @@ export function ThirdwebWalletInterface() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
   }
 
-  //
+  
   const exchangeAmount = (amount: string, symbol: string, currency: string) => {
      try{
       const theRateGor = generalExchangeRates.filter(rate => rate.price.base_coin === symbol && rate.price.quote_coin === currency)
@@ -753,6 +710,9 @@ export function ThirdwebWalletInterface() {
           total += amount
         }
       })
+      
+      // stellar selected populate erc20 tokens
+      setSupportedSendTokens(supportedTokens);
     }
     
     // Calculate from Stellar tokens (if connected)
@@ -764,9 +724,14 @@ export function ThirdwebWalletInterface() {
         const xlmAmount = Number(xlmRate[0].price.marketcap_amount) * stellarBalance
         total += xlmAmount
       }
+
+      // stellar selected populate xlm and usdc
+      setSupportedSendTokens(supportedTokens.filter((token: any) => token.symbol === 'XLM' || token.symbol === 'USDC'));
     }
-    
+
+    setSupportedSendFiat(currencies.filter((currency: any) => currency.token_type === "fiat" && currency.status === "active"));
     setTotalBalanceValue(total)
+  
   }, [supportedTokens, generalExchangeRates, selectedCurrency, walletType, stellarBalance])
 
   const getTransactionIcon = (type: string) => {
@@ -1115,16 +1080,16 @@ export function ThirdwebWalletInterface() {
 
 
                 <div className="flex gap-2">
-                 <div className="hidden opacity-0 pointer-events-none">
-                  <ConnectWallet   // let the button displat be none and opacity 0
-                  theme="light"
-                  modalSize="compact"
-                  welcomeScreen={{
-                    title: "Connect to PeerPesa",
-                    subtitle: "Your gateway to the decentralized web",
-                  }}
-                  modalTitleIconUrl="/images/peerpesa-logo.png"
-                      className="bg-[#19B17A] hover:bg-[#158f68] text-white hidden display:none opacity-0"
+                 {/* Hidden ConnectWallet button - accessible for programmatic clicks */}
+                 <div id="thirdweb-connect-wallet-btn" style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', overflow: 'hidden' }}>
+                  <ConnectWallet
+                    theme="light"
+                    modalSize="compact"
+                    welcomeScreen={{
+                      title: "Connect to PeerPesa",
+                      subtitle: "Your gateway to the decentralized web",
+                    }}
+                    modalTitleIconUrl="/images/peerpesa-logo.png"
                     /> 
                  </div>
                  <Button
@@ -1198,8 +1163,6 @@ export function ThirdwebWalletInterface() {
               
               <p className="text-sm text-gray-600 mb-1">Your Balance</p>
               <div className="flex items-center justify-center gap-2">
-
-
                   <p className="text-2xl font-bold text-gray-900">
                     {totalBalanceValue.toFixed(2) || 0.00}   {` ${selectedCurrency}`} 
                   </p>
@@ -1322,8 +1285,9 @@ export function ThirdwebWalletInterface() {
           isWalletConnected={isConnected}
           walletType={chain ? getNetworkName(chain.chainId as number) : "Wallet"}
           transactionType={transactionType}
+          assets={supportedSendTokens}
+          currencies={supportedSendFiat}
           mainWalletType={walletType}
-          assets={supportedTokens}
           exchangeRates={exchangeRates}
           connectedWallet={""}
           connectWalletBalance={0}

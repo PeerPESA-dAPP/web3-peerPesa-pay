@@ -11,6 +11,8 @@ export const API_ENDPOINTS = {
   SUPPORTED_CURRENCIES: '/dapp/supported/currencies',
   EXCHANGE_RATES: '/dapp/system/withdraw/rates',
   GENERAL_EXCHANGE_RATES: '/currencies/quote',
+  COUNTRIES: '/settings/countries',
+  WITHDRAW_NETWORKS: '/dapp/system/withdraw/networks',
   // Add more endpoints as needed
   // USER_PROFILE: '/user/profile',
   // TRANSACTIONS: '/user/transactions',
@@ -309,5 +311,140 @@ export async function fetchGeneralExchangeRates(quoteCurrency: string = 'USD'): 
   } catch (error) {
     console.error('Error fetching general exchange rates:', error)
     throw error
+  }
+}
+
+// Country interfaces
+export interface Country {
+  id?: string | number
+  code?: string
+  name?: string
+  country_name?: string  // Alternative name field from API
+  alpha_3_code?: string  // ISO 3166-1 alpha-3 code
+  alpha_2_code?: string  // ISO 3166-1 alpha-2 code
+  dialCode?: string
+  dial_code?: string     // Alternative dial code field from API
+  flag?: string
+  emoji_flag?: string    // Alternative flag field from API
+  isActive?: boolean
+  is_active?: boolean    // Alternative active field from API
+  currency?: string
+  currency_code?: string // Alternative currency field from API
+  [key: string]: any     // Allow additional fields from API
+}
+
+export interface CountriesResponse {
+  data?: Country[]
+  countries?: Country[]
+  success?: boolean
+  message?: string
+}
+
+/**
+ * Fetch countries list from API
+ * @returns Promise with countries array
+ */
+export async function fetchCountries(): Promise<Country[]> {
+  try {
+    const response = await apiGet<CountriesResponse>(API_ENDPOINTS.COUNTRIES)
+    
+    // Handle different possible response formats
+    if (Array.isArray(response)) {
+      return response
+    } else if (response.data && Array.isArray(response.data)) {
+      return response.data
+    } else if (response.countries && Array.isArray(response.countries)) {
+      return response.countries
+    } else {
+      console.warn('Unexpected countries response format:', response)
+      return []
+    }
+  } catch (error) {
+    console.error('Error fetching countries:', error)
+    // Return empty array on error so the app continues to work
+    return []
+  }
+}
+
+/**
+ * Get countries with fallback to default list
+ * @returns Promise with countries array
+ */
+export async function getCountriesWithFallback(): Promise<Country[]> {
+  try {
+    const countries = await fetchCountries()
+    
+    // If we got countries from API, return them
+    if (countries && countries.length > 0) {
+      return countries
+    }
+    
+    // Return empty array as fallback
+    // The phone input component will use its built-in country list
+    return []
+  } catch (error) {
+    console.error('Error fetching countries with fallback:', error)
+    return []
+  }
+}
+
+// Network interfaces
+export interface Network {
+  id?: string
+  name: string
+  code?: string
+  type: string // 'bank' | 'mobile' | 'crypto'
+  isActive?: boolean
+  currency?: string
+  fees?: number
+  processingTime?: string
+}
+
+export interface NetworksResponse {
+  data?: Network[]
+  networks?: Network[]
+  success?: boolean
+  message?: string
+}
+
+/**
+ * Fetch withdraw networks based on filter and currency
+ * @param filter - Network filter type ('bank' | 'mobile' | 'crypto')
+ * @param currency - Currency code (e.g., 'UGX', 'KES')
+ * @param sort - Sort parameter
+ * @returns Promise with networks array
+ */
+export async function fetchWithdrawNetworks(
+  filter: string = 'bank',
+  currency: string = 'USD',
+  sort: string = ''
+): Promise<Network[]> {
+  try {
+    const params: Record<string, string> = {
+      filter,
+      currency,
+    }
+    
+    if (sort) {
+      params.sort = sort
+    }
+    
+    const response = await apiGet<NetworksResponse>(API_ENDPOINTS.WITHDRAW_NETWORKS, params)
+    
+    // Handle different possible response formats
+    if (Array.isArray(response)) {
+      return response
+    } else if (response.data && Array.isArray(response.data)) {
+      return response.data
+    } else if (response.networks && Array.isArray(response.networks)) {
+      return response.networks
+    } else {
+      console.warn('Unexpected networks response format:', response)
+      return []
+    }
+  } catch (error) {
+    console.error('Error fetching withdraw networks:', error)
+    // Return empty array on error so the app continues to work
+    return []
   }
 }

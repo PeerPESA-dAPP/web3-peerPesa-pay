@@ -5,6 +5,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import PhoneInput from "react-phone-number-input"
+import "react-phone-number-input/style.css"
+import { useSettings } from "@/contexts/SettingsContext"
+import { useTransaction } from "@/contexts/TransactionContext"
 import {
   SendIcon,
   LinkIcon,
@@ -26,10 +30,11 @@ interface TransactionFormsProps {
   transactionType: string,
 
   assets?: any[],
+  currencies?: any[],
   exchangeRates?: any[],
   connectedWallet?: string,
   connectWalletBalance?: number,
-  mainWalletType?: string
+  mainWalletType?: any
 }
 
 export function TransactionForms({  onBack, 
@@ -38,6 +43,7 @@ export function TransactionForms({  onBack,
                                     onConnectWallet, 
                                     transactionType,
                                     assets,
+                                    currencies,
                                     exchangeRates,
                                     connectedWallet,
                                     connectWalletBalance,
@@ -47,10 +53,20 @@ export function TransactionForms({  onBack,
   const [showReview, setShowReview] = useState(false)
   const [sendAmount, setSendAmount] = useState("")
   const [sendAddress, setSendAddress] = useState("")
-  const [sendCurrency, setSendCurrency] = useState(transactionType === "buy" ? "ETH" : "USD")
+  const [sendCurrency, setSendCurrency] = useState(() => {
+    if (transactionType === "buy") {
+      return currencies && currencies.length > 0 ? currencies[0]?.symbol || "" : ""
+    }
+    return assets && assets.length > 0 ? assets[0]?.symbol || "" : ""
+  })
   const [receiveAmount, setReceiveAmount] = useState("")
-  const [receiveCurrency, setReceiveCurrency] = useState(transactionType === "buy" ? "USD" : "PLN")
-  const [selectedRoute, setSelectedRoute] = useState("Hyphen Bridge")
+  const [receiveCurrency, setReceiveCurrency] = useState(() => {
+    if (transactionType === "buy") {
+      return assets && assets.length > 0 ? assets[0]?.symbol || "" : ""
+    }
+    return currencies && currencies.length > 0 ? currencies[0]?.symbol || "" : ""
+  })
+  const [selectedRoute, setSelectedRoute] = useState("")
   const [showAssetSelector, setShowAssetSelector] = useState(false)
   const [showWalletSelector, setShowWalletSelector] = useState(false)
   const [paymentMode, setPaymentMode] = useState("")
@@ -62,11 +78,33 @@ export function TransactionForms({  onBack,
   const [phoneNumber, setPhoneNumber] = useState("")
   const [walletDestination, setWalletDestination] = useState("connected") // "connected" or "custom"
   const [customWalletAddress, setCustomWalletAddress] = useState("")
-  const [network, setNetwork] = useState("base")
+  const [network, setNetwork] = useState("") //base, ethereum, optimism
+  const [isVerifyingAccount, setIsVerifyingAccount] = useState(false)
+  const [isVerifyingPhone, setIsVerifyingPhone] = useState(false)
+  const [isVerifyingPaymentPhone, setIsVerifyingPaymentPhone] = useState(false)
+  const [selectedCountry, setSelectedCountry] = useState("")
+  const [paymentPhoneHolderName, setPaymentPhoneHolderName] = useState("")
+  
+  // Get countries from Settings Context
+  const { countries, loading: countriesLoading } = useSettings()
+  
+  // Get transaction networks from Transaction Context
+  const { 
+    bankNetworks, 
+    bankNetworksLoading, 
+    fetchBankNetworks,
+    mobileNetworks,
+    mobileNetworksLoading,
+    fetchMobileNetworks
+  } = useTransaction()
   
   // Swap form state
-  const [fromCurrency, setFromCurrency] = useState("ETH")
-  const [toCurrency, setToCurrency] = useState("USDC")
+  const [fromCurrency, setFromCurrency] = useState(() => {
+    return assets && assets.length > 0 ? assets[0]?.symbol || "" : ""
+  })
+  const [toCurrency, setToCurrency] = useState(() => {
+    return assets && assets.length > 0 ? assets[1]?.symbol || "" : ""
+  })
   const [fromAmount, setFromAmount] = useState("")
   const [toAmount, setToAmount] = useState("")
 
@@ -84,8 +122,22 @@ export function TransactionForms({  onBack,
   // Removed dummy data - all data now comes from props
   const recentAddresses: any[] = []
   const cryptoAssets: any[] = []
-  const banks: any[] = []
-  const mobileNetworks: any[] = []
+  
+  // Fetch networks when receiveCurrency changes
+  useEffect(() => {
+    if (receiveCurrency) {
+      console.log(`🔄 Fetching networks for currency: ${receiveCurrency}`)
+      
+      // Fetch both bank and mobile networks for the selected currency
+      fetchBankNetworks(receiveCurrency).then(() => {
+        console.log(`✅ Bank networks fetched for ${receiveCurrency}`)
+      })
+      
+      fetchMobileNetworks(receiveCurrency).then(() => {
+        console.log(`✅ Mobile networks fetched for ${receiveCurrency}`)
+      })
+    }
+  }, [receiveCurrency, fetchBankNetworks, fetchMobileNetworks])
 
   const handleNext = () => {
     setShowReview(true)
@@ -93,6 +145,63 @@ export function TransactionForms({  onBack,
 
   const handleBackFromReview = () => {
     setShowReview(false)
+  }
+
+  const handleVerifyAccount = async () => {
+    setIsVerifyingAccount(true)
+    try {
+      // TODO: Implement actual account verification API call
+      // For now, simulate verification
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // Set a dummy account name after verification
+      setBankAccountName("Account Verified - Name Retrieved")
+      
+      // Show success message (you can add toast notification here)
+      console.log("Account verified successfully")
+    } catch (error) {
+      console.error("Account verification failed:", error)
+    } finally {
+      setIsVerifyingAccount(false)
+    }
+  }
+
+  const handleVerifyPhone = async () => {
+    setIsVerifyingPhone(true)
+    try {
+      // TODO: Implement actual phone verification API call
+      // For now, simulate verification
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // Set a dummy holder name after verification
+      setPhoneHolderName("Phone Verified - Name Retrieved")
+      
+      // Show success message (you can add toast notification here)
+      console.log("Phone verified successfully")
+    } catch (error) {
+      console.error("Phone verification failed:", error)
+    } finally {
+      setIsVerifyingPhone(false)
+    }
+  }
+
+  const handleVerifyPaymentPhone = async () => {
+    setIsVerifyingPaymentPhone(true)
+    try {
+      // TODO: Implement actual payment phone verification API call
+      // For now, simulate verification
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // Set a dummy holder name after verification
+      setPaymentPhoneHolderName("Payment Phone Verified - Name Retrieved")
+      
+      // Show success message (you can add toast notification here)
+      console.log("Payment phone verified successfully")
+    } catch (error) {
+      console.error("Payment phone verification failed:", error)
+    } finally {
+      setIsVerifyingPaymentPhone(false)
+    }
   }
 
 
@@ -151,6 +260,8 @@ export function TransactionForms({  onBack,
           </div>
         )}
 
+
+
         {/* Wallet Selector Modal */}
         {showWalletSelector && (
           <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -207,7 +318,7 @@ export function TransactionForms({  onBack,
                   <SelectValue placeholder="All networks" />
                 </SelectTrigger>
                 <SelectContent className="bg-white">
-                  <SelectItem value="all" className="bg-white hover:bg-gray-50">🌐 All networks</SelectItem>
+                  <SelectItem value="all" className="bg-white hover:bg-gray-50">All networks</SelectItem>
                   <SelectItem value="ethereum" className="bg-white hover:bg-gray-50">Ethereum</SelectItem>
                   <SelectItem value="optimism" className="bg-white hover:bg-gray-50">Optimism</SelectItem>
                 </SelectContent>
@@ -364,15 +475,27 @@ export function TransactionForms({  onBack,
                                 <div className="font-medium text-gray-900">{sendCurrency}</div>
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent className="bg-white">
-                              {assets?.filter(asset => asset.token_type === "fiat" && asset.status === "active").map((asset) => (
-                                <SelectItem key={asset.code} value={asset.code} className="bg-white hover:bg-gray-50">
-                                  {asset.code} - {asset.name}
+                            <SelectContent className="bg-white max-h-[300px]">
+                              {assets && assets.length > 0 ? (
+                                assets
+                                  .filter(asset => asset.token_type === "Native" && asset.status === "active")
+                                  .map((asset) => (
+                                    <SelectItem 
+                                      key={asset.symbol} 
+                                      value={asset.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      {asset.symbol || asset.token_name}
                                 </SelectItem>
-                              ))}
+                                  ))
+                              ) : (
+                                <div className="p-4 text-center text-sm text-gray-500">
+                                  No assets available
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Fiat Token</div>
+                          <div className="text-sm text-gray-500">Crypto Asset</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -434,15 +557,27 @@ export function TransactionForms({  onBack,
                                 <div className="font-medium text-gray-900">{receiveCurrency}</div>
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent className="bg-white">
-                              {assets?.filter(asset => asset.token_type === "native" && asset.status === "active").map((asset) => (
-                                <SelectItem key={asset.code} value={asset.code} className="bg-white hover:bg-gray-50">
-                                  {asset.code} - {asset.name}
+                            <SelectContent className="bg-white max-h-[300px]">
+                              {currencies && currencies.length > 0 ? (
+                                currencies
+                                  .filter(currency => currency.token_type === "fiat" && currency.status === "active")
+                                  .map((currency) => (
+                                    <SelectItem 
+                                      key={currency.symbol} 
+                                      value={currency.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      {currency.symbol}
                                 </SelectItem>
-                              ))}
+                                  ))
+                              ) : (
+                                <div className="p-4 text-center text-sm text-gray-500">
+                                  No currencies available
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Native Currency</div>
+                          <div className="text-sm text-gray-500">Fiat Currency</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -469,16 +604,48 @@ export function TransactionForms({  onBack,
                   </div>
 
 
-                  {/* Payment Mode Selection */}
+                  {/* Country Selection */}
                   <div>
                     <Label className="text-sm text-gray-500 mb-2 block">Country</Label>
-                    <Select value={paymentMode} onValueChange={setPaymentMode}>
+                    <Select value={selectedCountry} onValueChange={setSelectedCountry}>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select payment method" />
+                        <SelectValue placeholder="Select country" />
                       </SelectTrigger>
-                      <SelectContent className="bg-white">
-                        <SelectItem value="bank" className="bg-white hover:bg-gray-50">Bank Transfer</SelectItem>
-                        <SelectItem value="mobile" className="bg-white hover:bg-gray-50">Mobile Money</SelectItem>
+                      <SelectContent className="bg-white max-h-[300px]">
+                        {countriesLoading ? (
+                          <div className="p-4 text-center text-sm text-gray-500">
+                            Loading countries...
+                          </div>
+                        ) : countries.length > 0 ? (
+                          countries
+                            .filter(country => {
+                              const hasValidCode = country.alpha_3_code || country.code
+                              const isActive = country.isActive !== false && country.is_active !== false
+                              return isActive && hasValidCode
+                            })
+                            .map((country) => {
+                              const countryCode = country.alpha_3_code || country.code || String(country.id)
+                              const countryName = country.country_name || country.name || countryCode
+                              const countryFlag = country.flag || country.emoji_flag
+                              
+                              return (
+                                <SelectItem 
+                                  key={countryCode} 
+                                  value={countryCode} 
+                                  className="bg-white hover:bg-gray-50"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {countryFlag && <span className="text-lg">{countryFlag}</span>}
+                                    <span>{countryName}</span>
+                                  </div>
+                                </SelectItem>
+                              )
+                            })
+                        ) : (
+                          <div className="p-4 text-center text-sm text-gray-500">
+                            No countries available
+                          </div>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -492,24 +659,30 @@ export function TransactionForms({  onBack,
                           <SelectTrigger className="w-full">
                             <SelectValue placeholder="Select your bank" />
                           </SelectTrigger>
-                          <SelectContent className="bg-white">
-                            {banks.map((bank) => (
-                              <SelectItem key={bank} value={bank} className="bg-white hover:bg-gray-50">
-                                {bank}
+                          <SelectContent className="bg-white max-h-[300px]">
+                            {bankNetworksLoading ? (
+                              <div className="p-4 text-center text-sm text-gray-500">
+                                Loading banks...
+                              </div>
+                            ) : bankNetworks.length > 0 ? (
+                              bankNetworks
+                                .filter(bank => bank.isActive !== false)
+                                .map((bank) => (
+                                  <SelectItem 
+                                    key={bank.id || bank.name} 
+                                    value={bank.name} 
+                                    className="bg-white hover:bg-gray-50"
+                                  >
+                                    {bank.name}
                               </SelectItem>
-                            ))}
+                                ))
+                            ) : (
+                              <div className="p-4 text-center text-sm text-gray-500">
+                                No banks available for {receiveCurrency}
+                              </div>
+                            )}
                           </SelectContent>
                         </Select>
-                      </div>
-
-                      <div>
-                        <Label className="text-sm text-gray-500 mb-2 block">Account Name</Label>
-                        <Input
-                          placeholder="Enter account holder name"
-                          value={bankAccountName}
-                          onChange={(e) => setBankAccountName(e.target.value)}
-                          className="w-full"
-                        />
                       </div>
 
                       <div>
@@ -519,6 +692,33 @@ export function TransactionForms({  onBack,
                           value={bankAccountNumber}
                           onChange={(e) => setBankAccountNumber(e.target.value)}
                           className="w-full"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full mt-2 border-[#19B17A] text-[#19B17A] hover:bg-[#19B17A] hover:text-white transition-colors"
+                          onClick={handleVerifyAccount}
+                          disabled={!bankAccountNumber || isVerifyingAccount}
+                        >
+                          {isVerifyingAccount ? (
+                            <>
+                              <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2" />
+                              Verifying...
+                            </>
+                          ) : (
+                            "Verify account number"
+                          )}
+                        </Button>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm text-gray-500 mb-2 block">Account Name</Label>
+                        <Input
+                          placeholder="Account name will appear after verification"
+                          value={bankAccountName}
+                          onChange={(e) => setBankAccountName(e.target.value)}
+                          className="w-full bg-gray-50"
+                          readOnly
                         />
                       </div>
                     </>
@@ -533,34 +733,87 @@ export function TransactionForms({  onBack,
                           <SelectTrigger className="w-full">
                             <SelectValue placeholder="Select mobile network" />
                           </SelectTrigger>
-                          <SelectContent className="bg-white">
-                            {mobileNetworks.map((network) => (
-                              <SelectItem key={network} value={network} className="bg-white hover:bg-gray-50">
-                                {network}
+                          <SelectContent className="bg-white max-h-[300px]">
+                            {mobileNetworksLoading ? (
+                              <div className="p-4 text-center text-sm text-gray-500">
+                                Loading mobile networks...
+                              </div>
+                            ) : mobileNetworks.length > 0 ? (
+                              mobileNetworks
+                                .filter(network => network.isActive !== false)
+                                .map((network) => (
+                                  <SelectItem 
+                                    key={network.id || network.name} 
+                                    value={network.name} 
+                                    className="bg-white hover:bg-gray-50"
+                                  >
+                                    {network.name}
                               </SelectItem>
-                            ))}
+                                ))
+                            ) : (
+                              <div className="p-4 text-center text-sm text-gray-500">
+                                No mobile networks available for {receiveCurrency}
+                              </div>
+                            )}
                           </SelectContent>
                         </Select>
                       </div>
 
                       <div>
                         <Label className="text-sm text-gray-500 mb-2 block">Phone Number</Label>
-                        <Input
-                          placeholder="Enter mobile number"
+                        {countriesLoading ? (
+                          <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <div className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-[#19B17A] rounded-full" />
+                            Loading countries...
+                          </div>
+                        ) : (
+                          <PhoneInput
+                            international
+                            defaultCountry="US"
                           value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          className="w-full"
-                        />
+                            onChange={(value) => setPhoneNumber(value || "")}
+                            placeholder="Enter phone number"
+                            className="phone-input-custom"
+                            countries={
+                              countries.length > 0
+                                ? (countries
+                                    .filter(c => {
+                                      const isActive = c.isActive !== false && c.is_active !== false
+                                      const hasCode = c.alpha_2_code || c.code
+                                      return isActive && hasCode
+                                    })
+                                    .map(c => c.alpha_2_code || c.code) as any)
+                                : undefined
+                            }
+                          />
+                        )}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full mt-2 border-[#19B17A] text-[#19B17A] hover:bg-[#19B17A] hover:text-white transition-colors"
+                          onClick={handleVerifyPhone}
+                          disabled={!phoneNumber || isVerifyingPhone}
+                        >
+                          {isVerifyingPhone ? (
+                            <>
+                              <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2" />
+                              Verifying...
+                            </>
+                          ) : (
+                            "Verify phone number"
+                          )}
+                        </Button>
                       </div>
 
 
                   <div>
                         <Label className="text-sm text-gray-500 mb-2 block">Holder Name</Label>
                     <Input
-                          placeholder="Enter account holder name"
+                          placeholder="Holder name will appear after verification"
                           value={phoneHolderName}
                           onChange={(e) => setPhoneHolderName(e.target.value)}
-                      className="w-full"
+                      className="w-full bg-gray-50"
+                          readOnly
                     />
                   </div>
                     </>
@@ -631,15 +884,27 @@ export function TransactionForms({  onBack,
                                 <div className="font-medium text-gray-900">{sendCurrency}</div>
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent className="bg-white">
-                              {assets?.filter(asset => asset.token_type === "native" && asset.status === "active").map((asset) => (
-                                <SelectItem key={asset.code} value={asset.code} className="bg-white hover:bg-gray-50">
-                                  {asset.code} - {asset.name}
+                            <SelectContent className="bg-white max-h-[300px]">
+                              {assets && assets.length > 0 ? (
+                                assets
+                                  .filter(asset => asset.token_type === "Native" && asset.status === "active")
+                                  .map((asset) => (
+                                    <SelectItem 
+                                      key={asset.symbol} 
+                                      value={asset.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      {asset.symbol || asset.token_name}
                                 </SelectItem>
-                              ))}
+                                  ))
+                              ) : (
+                                <div className="p-4 text-center text-sm text-gray-500">
+                                  No assets available
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Native Currency</div>
+                          <div className="text-sm text-gray-500">Crypto Asset</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -681,15 +946,27 @@ export function TransactionForms({  onBack,
                                 <div className="font-medium text-gray-900">{receiveCurrency}</div>
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent className="bg-white">
-                              {assets?.filter(asset => asset.token_type === "fiat" && asset.status === "active").map((asset) => (
-                                <SelectItem key={asset.code} value={asset.code} className="bg-white hover:bg-gray-50">
-                                  {asset.code} - {asset.name}
+                            <SelectContent className="bg-white max-h-[300px]">
+                              {currencies && currencies.length > 0 ? (
+                                currencies
+                                  .filter(currency => currency.token_type === "fiat" && currency.status === "active")
+                                  .map((currency) => (
+                                    <SelectItem 
+                                      key={currency.symbol} 
+                                      value={currency.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      {currency.symbol}
                                 </SelectItem>
-                              ))}
+                                  ))
+                              ) : (
+                                <div className="p-4 text-center text-sm text-gray-500">
+                                  No currencies available
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Fiat Token</div>
+                          <div className="text-sm text-gray-500">Fiat Currency</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -698,6 +975,65 @@ export function TransactionForms({  onBack,
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Payment Mode - Phone Number */}
+                  <div>
+                    <Label className="text-sm text-gray-500 mb-2 block">Payment Phone Number</Label>
+                    {countriesLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <div className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-[#19B17A] rounded-full" />
+                        Loading countries...
+                      </div>
+                    ) : (
+                      <PhoneInput
+                        international
+                        defaultCountry="US"
+                        value={phoneNumber}
+                        onChange={(value) => setPhoneNumber(value || "")}
+                        placeholder="Enter payment phone number"
+                        className="phone-input-custom"
+                        countries={
+                          countries.length > 0
+                            ? (countries
+                                .filter(c => {
+                                  const isActive = c.isActive !== false && c.is_active !== false
+                                  const hasCode = c.alpha_2_code || c.code
+                                  return isActive && hasCode
+                                })
+                                .map(c => c.alpha_2_code || c.code) as any)
+                            : undefined
+                        }
+                      />
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full mt-2 border-[#19B17A] text-[#19B17A] hover:bg-[#19B17A] hover:text-white transition-colors"
+                      onClick={handleVerifyPaymentPhone}
+                      disabled={!phoneNumber || isVerifyingPaymentPhone}
+                    >
+                      {isVerifyingPaymentPhone ? (
+                        <>
+                          <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2" />
+                          Verifying...
+                        </>
+                      ) : (
+                        "Verify phone number"
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Payment Phone Holder Name */}
+                  <div>
+                    <Label className="text-sm text-gray-500 mb-2 block">Account Holder Name</Label>
+                    <Input
+                      placeholder="Holder name will appear after verification"
+                      value={paymentPhoneHolderName}
+                      onChange={(e) => setPaymentPhoneHolderName(e.target.value)}
+                      className="w-full bg-gray-50"
+                      readOnly
+                    />
                   </div>
 
                    {/* Receive Wallet Selection */}
@@ -740,7 +1076,7 @@ export function TransactionForms({  onBack,
                              <span className="text-xs">🔗</span>
                     </div>
                            <span className="text-sm font-medium text-gray-900">
-                             {connectedWallet || "Not connected"}
+                             {connectedWallet || "Connected Wallet"}
                            </span>
                   </div>
                          <p className="text-xs text-gray-500 mt-1">Using your connected wallet</p>
@@ -774,7 +1110,7 @@ export function TransactionForms({  onBack,
                        <span className="text-sm text-gray-600">Receive Wallet</span>
                        <span className="text-sm font-medium">
                          {walletDestination === "connected" 
-                           ? (connectedWallet ? `${connectedWallet.slice(0, 6)}...${connectedWallet.slice(-6)}` : "Not connected")
+                           ? (connectedWallet ? `${connectedWallet.slice(0, 6)}...${connectedWallet.slice(-6)}` : "Connected Wallet")
                            : (customWalletAddress ? `${customWalletAddress.slice(0, 6)}...${customWalletAddress.slice(-6)}` : "Not specified")
                          }
                        </span>
@@ -782,8 +1118,8 @@ export function TransactionForms({  onBack,
 
 
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Buy Amount</span>
-                      <span className="text-sm font-medium">{sendAmount || 0} {sendCurrency}</span>
+                      <span className="text-sm text-gray-600">Payment Amount</span>
+                      <span className="text-sm font-medium">{sendAmount || 0} {receiveCurrency}</span>
                     </div>
 
                     <div className="flex justify-between items-center">
@@ -808,8 +1144,8 @@ export function TransactionForms({  onBack,
 
                     <div className="border-t border-gray-200 pt-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-900">Receive Amount</span>
-                        <span className="text-sm font-bold text-gray-900">0 {receiveCurrency}</span>
+                        <span className="text-sm font-medium text-gray-900">Recieve Amount</span>
+                        <span className="text-sm font-bold text-gray-900">{sendAmount || 0} {sendCurrency} </span>
                       </div>
                     </div>
                   </div>
@@ -842,15 +1178,27 @@ export function TransactionForms({  onBack,
                                 <div className="font-medium text-gray-900">{fromCurrency}</div>
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent className="bg-white">
-                              {assets?.filter(asset => asset.token_type === "native" && asset.status === "active").map((asset) => (
-                                <SelectItem key={asset.code} value={asset.code} className="bg-white hover:bg-gray-50">
-                                  {asset.code} - {asset.name}
+                            <SelectContent className="bg-white max-h-[300px]">
+                              {assets && assets.length > 0 ? (
+                                assets
+                                  .filter(asset => asset.token_type === "Native" && asset.status === "active")
+                                  .map((asset) => (
+                                    <SelectItem 
+                                      key={asset.symbol} 
+                                      value={asset.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      {asset.symbol || asset.token_name}
                                 </SelectItem>
-                              ))}
+                                  ))
+                              ) : (
+                                <div className="p-4 text-center text-sm text-gray-500">
+                                  No assets available
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Native Currency</div>
+                          <div className="text-sm text-gray-500">Crypto Asset</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -910,15 +1258,27 @@ export function TransactionForms({  onBack,
                                 <div className="font-medium text-gray-900">{toCurrency}</div>
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent className="bg-white">
-                              {assets?.filter(asset => asset.token_type === "native" && asset.status === "active").map((asset) => (
-                                <SelectItem key={asset.code} value={asset.code} className="bg-white hover:bg-gray-50">
-                                  {asset.code} - {asset.name}
+                            <SelectContent className="bg-white max-h-[300px]">
+                              {assets && assets.length > 0 ? (
+                                assets
+                                  .filter(asset => asset.token_type === "Native" && asset.status === "active")
+                                  .map((asset) => (
+                                    <SelectItem 
+                                      key={asset.symbol} 
+                                      value={asset.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      {asset.symbol || asset.token_name}
                                 </SelectItem>
-                              ))}
+                                  ))
+                              ) : (
+                                <div className="p-4 text-center text-sm text-gray-500">
+                                  No assets available
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Native Currency</div>
+                          <div className="text-sm text-gray-500">Crypto Asset</div>
                         </div>
                       </div>
                       <div className="text-right">

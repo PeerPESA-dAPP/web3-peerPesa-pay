@@ -6,6 +6,8 @@ import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
 import { ThirdwebProviderWrapper } from "@/components/thirdweb-provider"
 import { GlobalErrorHandler } from "@/components/global-error-handler"
+import { SettingsProvider } from "@/contexts/SettingsContext"
+import { TransactionProvider } from "@/contexts/TransactionContext"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -27,8 +29,12 @@ export default function RootLayout({
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <GlobalErrorHandler>
           <ThirdwebProviderWrapper>
-            <Suspense fallback={null}>{children}</Suspense>
-            <Analytics />
+            <SettingsProvider>
+              <TransactionProvider>
+                <Suspense fallback={null}>{children}</Suspense>
+                <Analytics />
+              </TransactionProvider>
+            </SettingsProvider>
           </ThirdwebProviderWrapper>
         </GlobalErrorHandler>
       </body>
