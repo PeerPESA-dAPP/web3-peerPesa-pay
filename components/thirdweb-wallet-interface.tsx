@@ -1322,6 +1322,12 @@ export function ThirdwebWalletInterface() {
           isWalletConnected={isConnected}
           walletType={chain ? getNetworkName(chain.chainId as number) : "Wallet"}
           transactionType={transactionType}
+          mainWalletType={walletType}
+          assets={supportedTokens}
+          exchangeRates={exchangeRates}
+          connectedWallet={""}
+          connectWalletBalance={0}
+
           onConnectWallet={() => {
             toast({
               title: "Connect Wallet",
@@ -1607,18 +1613,17 @@ export function ThirdwebWalletInterface() {
               </div>
             )}
           
+          </TabsContent>
           
           
-          
-              </TabsContent>
           <TabsContent value="transactions" className="mt-6">
             {/* Transactions section */}
-                            <div>
+            <div>
               <div className="px-6 py-2">
                 <h3 className="text-xl font-bold text-gray-900 mb-3 flex items-center gap-2">
                   All Transactions
                 </h3>
-          </div>
+              </div>
               <div className="space-y-0">
                 {mockTransactions.length > 0 ? (
                   mockTransactions.map((transaction, index) => (
@@ -1654,7 +1659,7 @@ export function ThirdwebWalletInterface() {
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
                         <ArrowUpIcon className="h-6 w-6 text-gray-400" />
-              </div>
+                      </div>
                       <div>
                         <p className="font-medium text-gray-900">No transactions yet</p>
                         <p className="text-sm text-gray-600">Your transaction history will appear here</p>
@@ -1664,7 +1669,7 @@ export function ThirdwebWalletInterface() {
                 )}
               </div>
             </div>
-              </TabsContent>
+          </TabsContent>
 
           <TabsContent value="activity" className="mt-6">
             {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? (
@@ -1789,16 +1794,16 @@ export function ThirdwebWalletInterface() {
             {/* Transaction Breakdown */}
             <div className="mb-4">
               <div className="px-6 py-2">
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Breakdown</h3>
-          </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Breakdown</h3>
+              </div>
               <div className="px-6">
                 <div className="space-y-3">
                   <div className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
-                        <span className="text-sm font-medium text-gray-900">Buy</span>
-              </div>
+                         <span className="text-sm font-medium text-gray-900">Buy</span>
+                       </div>
                       <span className="text-sm font-bold text-blue-600">50%</span>
                     </div>
                     <div className="w-full bg-white rounded-full h-2">
