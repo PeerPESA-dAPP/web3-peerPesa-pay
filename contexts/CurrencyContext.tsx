@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { fetchSupportedCurrencies, getDefaultCurrencies, ApiError, fetchExchangeRates, ExchangeRate } from '@/utils/api'
+import { fetchSupportedCurrencies, getDefaultCurrencies, ApiError, fetchExchangeRates, ExchangeRate, fetchGeneralExchangeRates, GeneralExchangeRate } from '@/utils/api'
 
 // Re-export the utility function for convenience
 export { getInitials } from '@/utils/string'
@@ -27,13 +27,17 @@ interface CurrencyContextType {
   exchangeRatesLoading: boolean
   exchangeRatesError: string | null
   refetchExchangeRates: () => void
+  generalExchangeRates: GeneralExchangeRate[]
+  generalExchangeRatesLoading: boolean
+  generalExchangeRatesError: string | null
+  refetchGeneralExchangeRates: () => void
 }
 
 // Default USD currency
 const defaultUSD: Currency = {
   code: 'USD',
   name: 'US Dollar',
-  symbol: 'USD',
+  symbol: '$',
   rate: 1,
   isActive: true
 }
@@ -51,17 +55,28 @@ const defaultCurrencyContext: CurrencyContextType = {
   exchangeRates: [],
   exchangeRatesLoading: false,
   exchangeRatesError: null,
-  refetchExchangeRates: () => {}
+  refetchExchangeRates: () => {},
+  generalExchangeRates: [],
+  generalExchangeRatesLoading: false,
+  generalExchangeRatesError: null,
+  refetchGeneralExchangeRates: () => {}
 }
 
 const CurrencyContext = createContext<CurrencyContextType>(defaultCurrencyContext)
 
+// Single currency hook that works with or without provider
 export const useCurrency = () => {
   const context = useContext(CurrencyContext)
+  
+  // If context is the default (no provider), create standalone state
+  if (context === defaultCurrencyContext) {
+    return useStandaloneCurrency()
+  }
+  
   return context
 }
 
-// Standalone currency hook that works without provider
+// Standalone currency hook for components that don't use the provider
 export const useStandaloneCurrency = () => {
   const [currencies, setCurrencies] = useState<Currency[]>([defaultUSD])
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD')
@@ -70,6 +85,9 @@ export const useStandaloneCurrency = () => {
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([])
   const [exchangeRatesLoading, setExchangeRatesLoading] = useState(false)
   const [exchangeRatesError, setExchangeRatesError] = useState<string | null>(null)
+  const [generalExchangeRates, setGeneralExchangeRates] = useState<GeneralExchangeRate[]>([])
+  const [generalExchangeRatesLoading, setGeneralExchangeRatesLoading] = useState(false)
+  const [generalExchangeRatesError, setGeneralExchangeRatesError] = useState<string | null>(null)
 
   // Fetch currencies on component mount
   useEffect(() => {
@@ -77,7 +95,6 @@ export const useStandaloneCurrency = () => {
       .then((fetchedCurrencies) => {
         if (Array.isArray(fetchedCurrencies) && fetchedCurrencies.length > 0) {
           setCurrencies(fetchedCurrencies)
-          console.log('Currencies fetched successfully:', fetchedCurrencies)
         }
       })
       .catch((err) => {
@@ -92,14 +109,31 @@ export const useStandaloneCurrency = () => {
     if (selectedCurrency) {
       fetchExchangeRates(selectedCurrency)
         .then((response) => {
-          if (response.rates && Array.isArray(response.rates)) {
-            setExchangeRates(response.rates)
+          if (response?.data?.rates && Array.isArray(response?.data?.rates)) {
+            setExchangeRates(response?.data?.rates)
             console.log('Exchange rates fetched successfully:', response.rates)
           }
         })
         .catch((err) => {
           console.error('Error fetching exchange rates:', err)
           setExchangeRatesError(err instanceof ApiError ? err.message : 'Failed to fetch exchange rates')
+        })
+    }
+  }, [selectedCurrency])
+
+  // Fetch general exchange rates when selected currency changes
+  useEffect(() => {
+    if (selectedCurrency) {
+      fetchGeneralExchangeRates(selectedCurrency)
+        .then((response) => {
+
+          if (response?.data && Array.isArray(response?.data)) {
+            setGeneralExchangeRates(response?.data)
+          }
+        })
+        .catch((err) => {
+          console.error('Error fetching general exchange rates:', err)
+          setGeneralExchangeRatesError(err instanceof ApiError ? err.message : 'Failed to fetch general exchange rates')
         })
     }
   }, [selectedCurrency])
@@ -139,6 +173,11 @@ export const useStandaloneCurrency = () => {
   }
 
   const getCurrentCurrency = (): Currency => {
+    // Ensure currencies is an array
+    if (!Array.isArray(currencies) || currencies.length === 0) {
+      return defaultUSD
+    }
+    
     return currencies.find(currency => currency.code === selectedCurrency) || currencies[0] || defaultUSD
   }
 
@@ -154,6 +193,24 @@ export const useStandaloneCurrency = () => {
     return (parseFloat(convertedAmount.toString()) > 0) ? convertedAmount.toFixed(2) : '0.00'
   }
 
+  const refetchGeneralExchangeRates = async () => {
+    if (!selectedCurrency) return
+    
+    try {
+      setGeneralExchangeRatesLoading(true)
+      setGeneralExchangeRatesError(null)
+      const response = await fetchGeneralExchangeRates(selectedCurrency)
+      if (response?.data && Array.isArray(response?.data)) {
+        setGeneralExchangeRates(response?.data)
+      }
+    } catch (err) {
+      console.error('Error refetching general exchange rates:', err)
+      setGeneralExchangeRatesError(err instanceof ApiError ? err.message : 'Failed to refetch general exchange rates')
+    } finally {
+      setGeneralExchangeRatesLoading(false)
+    }
+  }
+
   return {
     currencies,
     selectedCurrency,
@@ -166,7 +223,11 @@ export const useStandaloneCurrency = () => {
     exchangeRates,
     exchangeRatesLoading,
     exchangeRatesError,
-    refetchExchangeRates
+    refetchExchangeRates,
+    generalExchangeRates,
+    generalExchangeRatesLoading,
+    generalExchangeRatesError,
+    refetchGeneralExchangeRates
   }
 }
 
@@ -182,6 +243,9 @@ export const CurrencyProvider: React.FC<CurrencyProviderProps> = ({ children }) 
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([])
   const [exchangeRatesLoading, setExchangeRatesLoading] = useState(false)
   const [exchangeRatesError, setExchangeRatesError] = useState<string | null>(null)
+  const [generalExchangeRates, setGeneralExchangeRates] = useState<GeneralExchangeRate[]>([])
+  const [generalExchangeRatesLoading, setGeneralExchangeRatesLoading] = useState(false)
+  const [generalExchangeRatesError, setGeneralExchangeRatesError] = useState<string | null>(null)
 
   // Fetch currencies on page load
   useEffect(() => {
@@ -189,7 +253,6 @@ export const CurrencyProvider: React.FC<CurrencyProviderProps> = ({ children }) 
       .then((fetchedCurrencies) => {
         if (Array.isArray(fetchedCurrencies) && fetchedCurrencies.length > 0) {
           setCurrencies(fetchedCurrencies)
-          console.log('Currencies fetched successfully:', fetchedCurrencies)
         }
       })
       .catch((err) => {
@@ -204,14 +267,31 @@ export const CurrencyProvider: React.FC<CurrencyProviderProps> = ({ children }) 
     if (selectedCurrency) {
       fetchExchangeRates(selectedCurrency)
         .then((response) => {
-          if (response.rates && Array.isArray(response.rates)) {
-            setExchangeRates(response.rates)
-            console.log('Exchange rates fetched successfully:', response.rates)
+          if (response?.data?.rates && Array.isArray(response?.data?.rates)) {
+            setExchangeRates(response?.data?.rates)
           }
         })
         .catch((err) => {
           console.error('Error fetching exchange rates:', err)
           setExchangeRatesError(err instanceof ApiError ? err.message : 'Failed to fetch exchange rates')
+        })
+    }
+  }, [selectedCurrency])
+
+  // Fetch general exchange rates when selected currency changes
+  useEffect(() => {
+    if (selectedCurrency) {
+
+
+      fetchGeneralExchangeRates(selectedCurrency)
+        .then((response) => {
+          if (response?.data && Array.isArray(response?.data)) {
+            setGeneralExchangeRates(response?.data)
+          } 
+        })
+        .catch((err) => {
+          console.error('Error fetching general exchange rates:', err)
+          setGeneralExchangeRatesError(err instanceof ApiError ? err.message : 'Failed to fetch general exchange rates')
         })
     }
   }, [selectedCurrency])
@@ -251,6 +331,11 @@ export const CurrencyProvider: React.FC<CurrencyProviderProps> = ({ children }) 
   }
 
   const getCurrentCurrency = (): Currency => {
+    // Ensure currencies is an array
+    if (!Array.isArray(currencies) || currencies.length === 0) {
+      return defaultUSD
+    }
+    
     return currencies.find(currency => currency.code === selectedCurrency) || currencies[0] || defaultUSD
   }
 
@@ -266,6 +351,24 @@ export const CurrencyProvider: React.FC<CurrencyProviderProps> = ({ children }) 
     return (parseFloat(convertedAmount.toString()) > 0) ? convertedAmount.toFixed(2) : '0.00'
   }
 
+  const refetchGeneralExchangeRates = async () => {
+    if (!selectedCurrency) return
+    
+    try {
+      setGeneralExchangeRatesLoading(true)
+      setGeneralExchangeRatesError(null)
+      const response = await fetchGeneralExchangeRates(selectedCurrency)
+      if (response?.data && Array.isArray(response?.data)) {
+        setGeneralExchangeRates(response?.data)
+      }
+    } catch (err) {
+      console.error('Error refetching general exchange rates:', err)
+      setGeneralExchangeRatesError(err instanceof ApiError ? err.message : 'Failed to refetch general exchange rates')
+    } finally {
+      setGeneralExchangeRatesLoading(false)
+    }
+  }
+
   const value: CurrencyContextType = {
     currencies,
     selectedCurrency,
@@ -278,7 +381,11 @@ export const CurrencyProvider: React.FC<CurrencyProviderProps> = ({ children }) 
     exchangeRates,
     exchangeRatesLoading,
     exchangeRatesError,
-    refetchExchangeRates
+    refetchExchangeRates,
+    generalExchangeRates,
+    generalExchangeRatesLoading,
+    generalExchangeRatesError,
+    refetchGeneralExchangeRates
   }
 
   return (

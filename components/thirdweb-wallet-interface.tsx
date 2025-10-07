@@ -8,6 +8,8 @@ import {
   useChain,
   useSwitchChain,
   useConnectionStatus,
+  useTokenBalance,
+  useBalance,
 } from "@thirdweb-dev/react"
 import { 
   StellarWalletsKit, 
@@ -84,25 +86,7 @@ const mockTransactions: Transaction[] = [
   //   fiatAmount: 1250.0,
   //   date: "2024-01-15T10:30:00Z",
   //   status: "completed",
-  // },
-  // {
-  //   id: "2",
-  //   type: "sell",
-  //   amount: 2.5,
-  //   currency: "ETH",
-  //   fiatAmount: 5875.5,
-  //   date: "2024-01-14T15:45:00Z",
-  //   status: "completed",
-  // },
-  // {
-  //   id: "4",
-  //   type: "receive",
-  //   amount: 0.01,
-  //   currency: "BTC",
-  //   fiatAmount: 500.0,
-  //   date: "2024-01-12T14:20:00Z",
-  //   status: "completed",
-  // },
+  // }
 ]
 
 
@@ -115,6 +99,8 @@ export function ThirdwebWalletInterface() {
     selectedCurrency, 
     setSelectedCurrency, 
     getCurrentCurrency, 
+    exchangeRates,
+    generalExchangeRates,
     convertAmount,
     currencies,
     loading: currencyLoading,
@@ -128,14 +114,20 @@ export function ThirdwebWalletInterface() {
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [celoBalance, setCeloBalance] = useState(0.00)
   const [usdValue, setUsdValue] = useState(0.00)
+  const [totalBalanceValue, setTotalBalanceValue] = useState(0.00)
   const [currencyFetching, setCurrencyFetching] = useState(false)
 
+  // Supported tokens state
+  const [supportedTokens, setSupportedTokens] = useState<any[]>([])
+  const [supportedTokensLoading, setSupportedTokensLoading] = useState(false)
   
   const [stellarAddress, setStellarAddress] = useState<string | null>(null)
   const [walletType, setWalletType] = useState<'evm' | 'stellar' | null>(null)
   const [stellarBalance, setStellarBalance] = useState<number>(0)
+  const [usdcStellarBalance, setUsdcStellarBalance] = useState<number>(0)
   const [stellarKit, setStellarKit] = useState<StellarWalletsKit | null>(null)
   const stellarKitRef = useRef<HTMLDivElement>(null)
+  const currencyDropdownRef = useRef<HTMLDivElement>(null)
 
   // Wallet asset management
   const [walletAssets, setWalletAssets] = useState<any[]>([])
@@ -148,7 +140,7 @@ export function ThirdwebWalletInterface() {
     const initalizeCurrencies = async () => {
 
       await refetchCurrencies()
-      setWalletAssets(currencies.filter(currency => currency.token_type === 'Native' && currency.status === "active"))
+      setWalletAssets(currencies.filter(currency => currency.isActive))
     }
     initalizeCurrencies()
   }, [])
@@ -158,7 +150,6 @@ export function ThirdwebWalletInterface() {
     if (currencies && currencies.length > 0) {
       const enabledAssetsFromCurrencies = getEnabledAssetsFromAny(currencies as CurrencyData[])
       setEnabledAssets(enabledAssetsFromCurrencies)
-      console.log('Enabled assets from currencies:', enabledAssetsFromCurrencies)
     }
   }, [currencies])
 
@@ -167,6 +158,11 @@ export function ThirdwebWalletInterface() {
   const disconnect = useDisconnect()
   const chain = useChain()
   const switchChain = useSwitchChain()
+
+  // Token balance hooks
+  const { data: nativeBalance } = useBalance()
+  // Note: For multiple tokens, we'll need to use individual useTokenBalance hooks
+  // or implement a different approach to get all token balances
 
   // Function to programmatically open the ConnectWallet modal
   const openConnectWallet = () => {
@@ -347,6 +343,10 @@ export function ThirdwebWalletInterface() {
   }
 
   
+
+
+
+
   // Function to fetch Stellar wallet balance
   const fetchStellarBalance = async (address: string) => {
     try {
@@ -354,8 +354,11 @@ export function ThirdwebWalletInterface() {
       const response = await fetch(`https://horizon.stellar.org/accounts/${address}`)
       
       if (response.ok) {
+
+
         const accountData = await response.json()
         
+
         // Find XLM balance
         const xlmBalance = accountData.balances.find((balance: any) => balance.asset_type === 'native')
         if (xlmBalance) {
@@ -364,10 +367,10 @@ export function ThirdwebWalletInterface() {
         }
 
         ///  also fetch USDC balance
-        console.log(`USDC -------------- USDC`, accountData.balances)
+        console.log(`USDC -------------- USDC`, accountData)
         const usdcBalance = accountData.balances.find((balance: any) => balance.asset_type === 'usdc')
         if (usdcBalance) {
-          // setUsdcBalance(parseFloat(usdcBalance.balance))
+          setUsdcStellarBalance(parseFloat(usdcBalance.balance))
           console.log(`USDC balance fetched: ${usdcBalance.balance} USDC`)
         }
 
@@ -376,9 +379,10 @@ export function ThirdwebWalletInterface() {
         console.warn('Failed to fetch Stellar balance:', response.status)
       }
     } catch (error) {
+
+
       console.error('Error fetching Stellar balance:', error)
-      // Set a mock balance for demo purposes
-      setStellarBalance(25.5)
+      setStellarBalance(0)
     }
   }
 
@@ -419,10 +423,10 @@ export function ThirdwebWalletInterface() {
     if (!currencies || currencies.length === 0) return {}
     
     // Check if currencies are in API format
-    const hasApiFormat = currencies.some(currency => 'status' in currency && 'token_type' in currency)
+    const hasApiFormat = currencies.some(currency => 'isActive' in currency)
     
     if (hasApiFormat) {
-      const apiCurrencies = currencies.filter(currency => 'status' in currency && 'token_type' in currency) as unknown as CurrencyFromAPI[]
+      const apiCurrencies = currencies.filter(currency => 'isActive' in currency) as unknown as CurrencyFromAPI[]
       return checkNativeCurrenciesFromApi(walletAssets, apiCurrencies)
     }
     
@@ -442,15 +446,15 @@ export function ThirdwebWalletInterface() {
     if (!currencies || currencies.length === 0) return []
 
     // Check if currencies are in API format
-    const hasApiFormat = currencies.some(currency => 'status' in currency && 'token_type' in currency)
+    const hasApiFormat = currencies.some(currency => 'isActive' in currency)
     
     if (hasApiFormat) {
-      const apiCurrencies = currencies.filter(currency => 'status' in currency && 'token_type' in currency) as unknown as CurrencyFromAPI[]
+      const apiCurrencies = currencies.filter(currency => 'isActive' in currency) as unknown as CurrencyFromAPI[]
       return getNativeAssetsFromApi(apiCurrencies)
     }
     
     // For CurrencyContext format, return all enabled assets as native
-    return enabledAssets.filter(asset => asset.token_type === 'Native')
+    return enabledAssets.filter(asset => asset.isEnabled)
   }
 
   // Function to check if wallet has any of the enabled Native currencies
@@ -464,6 +468,7 @@ export function ThirdwebWalletInterface() {
     setStellarAddress(null)
     setWalletType(null)
     setStellarBalance(0)
+    setUsdcStellarBalance(0)
     
     // Only reset CELO balance if no EVM wallet is connected
     if (!isConnected || !address) {
@@ -551,6 +556,32 @@ export function ThirdwebWalletInterface() {
     }
   }, [walletType, stellarAddress])
 
+  // Fetch supported tokens when wallet connects or token balances change
+  useEffect(() => {
+    if (isConnected && address && chain) {
+      fetchSupportedTokens()
+    } else {
+      setSupportedTokens([])
+    }
+  }, [isConnected, address, chain, nativeBalance])
+
+  // Handle click outside currency dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (currencyDropdownRef.current && !currencyDropdownRef.current.contains(event.target as Node)) {
+        setShowCurrencyDropdown(false)
+      }
+    }
+
+    if (showCurrencyDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showCurrencyDropdown])
+
   
 
   const handleDisconnect = async () => {
@@ -617,11 +648,126 @@ export function ThirdwebWalletInterface() {
     return networks[chainId] || "Ethereum"
   }
 
+  // Function to fetch supported tokens for the connected wallet
+  const fetchSupportedTokens = async () => {
+    if (!address || !chain) return
+    
+    try {
+      setSupportedTokensLoading(true)
+      
+      // Get supported tokens for the current chain
+      const tokens = []
+      
+      // Add native token (ETH, MATIC, etc.)
+      if (nativeBalance) {
+        tokens.push({
+          address: "0x0000000000000000000000000000000000000000", // Native token address
+          name: chain.nativeCurrency?.name || "Native Token",
+          symbol: chain.nativeCurrency?.symbol || "ETH",
+          decimals: chain.nativeCurrency?.decimals || 18,
+          balance: nativeBalance.value,
+          balanceFormatted: nativeBalance.displayValue,
+          type: "native",
+          chainId: chain.chainId,
+          chainName: chain.name
+        })
+      }
+      
+      // For now, we'll add some common tokens manually
+      // In a real implementation, you might want to use a token list API
+      // or get tokens from the user's transaction history
+      const commonTokens = [
+        // USDC (example)
+        {
+          address: "0xA0b86a33E6441d9C7C4b7C8B2e8e8e8e8e8e8e8e", // Example address
+          name: "USD Coin",
+          symbol: "USDC",
+          decimals: 6,
+          balance: "0",
+          balanceFormatted: "0.00",
+          type: "erc20",
+          chainId: chain.chainId,
+          chainName: chain.name
+        },
+        // USDT (example)
+        {
+          address: "0xB0c86a33E6441d9C7C4b7C8B2e8e8e8e8e8e8e8e", // Example address
+          name: "Tether USD",
+          symbol: "USDT",
+          decimals: 6,
+          balance: "0",
+          balanceFormatted: "0.00",
+          type: "erc20",
+          chainId: chain.chainId,
+          chainName: chain.name
+        }
+      ]
+      
+      // Add common tokens (you can extend this list)
+      tokens.push(...commonTokens)
+      
+      setSupportedTokens(tokens)
+      console.log('Supported tokens fetched:', tokens)
+      
+    } catch (error) {
+      console.error('Error fetching supported tokens:', error)
+    } finally {
+      setSupportedTokensLoading(false)
+    }
+  }
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
   }
+
+  //
+  const exchangeAmount = (amount: string, symbol: string, currency: string) => {
+     try{
+      const theRateGor = generalExchangeRates.filter(rate => rate.price.base_coin === symbol && rate.price.quote_coin === currency)
+      if(theRateGor.length > 0) {
+        const theTAmount: any = (Number(theRateGor[0].price.marketcap_amount) * Number(amount)).toFixed(2)
+        return theTAmount;
+      }
+      return (0).toFixed(2)
+      
+     } catch(error) {
+      return (0).toFixed(2)
+     }
+        
+  }
+
+  // Calculate total balance from all tokens
+  useEffect(() => {
+    let total = 0
+    
+    // Calculate from EVM supported tokens (if connected)
+    if (supportedTokens.length > 0 && generalExchangeRates.length > 0) {
+      supportedTokens.forEach((token) => {
+        const theRateGor = generalExchangeRates.filter(
+          rate => rate.price?.base_coin === token.symbol && rate.price?.quote_coin === selectedCurrency
+        )
+        if (theRateGor.length > 0 && token.balanceFormatted) {
+          const amount = Number(theRateGor[0].price.marketcap_amount) * Number(token.balanceFormatted)
+          console.log(`Token ${token.symbol}: ${token.balanceFormatted} * ${theRateGor[0].price.marketcap_amount} = ${amount}`)
+          total += amount
+        }
+      })
+    }
+    
+    // Calculate from Stellar tokens (if connected)
+    if (walletType === 'stellar' && stellarBalance && generalExchangeRates.length > 0) {
+      const xlmRate = generalExchangeRates.filter(
+        rate => rate.price?.base_coin === 'XLM' && rate.price?.quote_coin === selectedCurrency
+      )
+      if (xlmRate.length > 0) {
+        const xlmAmount = Number(xlmRate[0].price.marketcap_amount) * stellarBalance
+        total += xlmAmount
+      }
+    }
+    
+    setTotalBalanceValue(total)
+  }, [supportedTokens, generalExchangeRates, selectedCurrency, walletType, stellarBalance])
 
   const getTransactionIcon = (type: string) => {
     const iconClass = "h-4 w-4"
@@ -1006,15 +1152,59 @@ export function ThirdwebWalletInterface() {
         <div className="px-6 pt-8">
           <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
             <CardContent className="py-0 px-4 text-center">
+              
+              {/* Wallet Address with Copy Icon */}
+              {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) && (
+                <div className="flex items-center justify-center gap-2 mb-2 pt-4">
+                  <p className="text-xs text-gray-600 font-mono">
+                    {walletType === 'stellar' && stellarAddress
+                      ? `${stellarAddress.slice(0, 6)}...${stellarAddress.slice(-6)}`
+                      : address
+                      ? `${address.slice(0, 6)}...${address.slice(-6)}`
+                      : ''
+                    }
+                  </p>
+                  <button
+                    onClick={() => {
+                      const addressToCopy = walletType === 'stellar' ? stellarAddress : address
+                      if (addressToCopy) {
+                        navigator.clipboard.writeText(addressToCopy)
+                        toast({
+                          title: "Address Copied",
+                          description: "Wallet address copied to clipboard",
+                          variant: "default",
+                        })
+                      }
+                    }}
+                    className="text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </button>
+                  </div>
+              )}
+              
               <p className="text-sm text-gray-600 mb-1">Your Balance</p>
               <div className="flex items-center justify-center gap-2">
 
 
                   <p className="text-2xl font-bold text-gray-900">
-                    {convertAmount(usdValue) || ''}   {` ${selectedCurrency}`}
+                    {totalBalanceValue.toFixed(2) || 0.00}   {` ${selectedCurrency}`} 
                   </p>
                   <div className="flex items-center justify-center gap-2">
-                    <div className="relative">
+                    <div className="relative" ref={currencyDropdownRef}>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1029,8 +1219,11 @@ export function ThirdwebWalletInterface() {
                       >
                         <ChevronDownIcon className="h-3 w-3 text-black" />
                       </Button>
+
+
                       {showCurrencyDropdown && (
-                        <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[80px]">
+
+                        <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[120px] max-h-[200px] overflow-y-auto">
                           {currencyLoading ? (
                             <div className="px-3 py-2 text-sm text-gray-500">
                               Loading...
@@ -1048,27 +1241,28 @@ export function ThirdwebWalletInterface() {
                                 Retry
                               </button>
                   </div>
-                          ) : (
+                            ) : (
+                              currencies.length > 0 && currencies.filter((currency: any) => currency.token_type === "fiat" && currency.status === "active").map((currency) => (
+                              <button  
+                                key={currency.symbol}
+                                className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg cursor-pointer flex items-center justify-between ${
+                                  selectedCurrency === currency.code ? 'bg-blue-50 text-blue-700' : ''
+                                }`}
+                                onClick={() => {
+                                  setSelectedCurrency(currency.symbol)
+                                  setShowCurrencyDropdown(false)
+                                }}
+                              >
+                                <span className="text-xs text-gray-500">{currency.symbol}</span>
+                              </button>
+                            ))
+                          )}
+                </div>
 
-                            currencies.length > 0 &&  currencies.filter((currency: any) => currency.token_type === "fiat").map((currency) => (
-                                  <button
-                                    key={currency.symbol}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg cursor-pointer"
-                                    onClick={() => {
-                                      setSelectedCurrency(currency.symbol)
-                                      setShowCurrencyDropdown(false)
-                                    }}
-                                  >
-                                    {currency.symbol}
-                                  </button>
-                                ))
-                            )}
-
-                  </div>
                       )}
                 </div>
                   </div>
-                </div>    
+                 </div>
  
 
 
@@ -1165,20 +1359,21 @@ export function ThirdwebWalletInterface() {
 
           <TabsContent value="overview" className="mt-1">
             {/* Assets section */}
-            <div className="mb-2">
-              <div className="px-4 py-1">
-                <h3 className="text-md font-bold text-gray-500 mb-3">Assets</h3>
-              </div>
+            {walletType === 'stellar' && stellarAddress && (
+             <div className="mb-2">
+              <div className="px-0 py-2">
+                <h3 className="text-md font-bold text-gray-500 mb-1">Assets</h3>
+                    </div>
               <div className="space-y-0">
                 {/* Display Native assets for current network when wallet is connected, or all Native assets when not connected */}
                 {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) 
-                  ? getNativeAssetsForCurrentNetwork().map((asset) => {
+                  && getEnabledNativeAssetsFromApi().filter(asset => asset.symbol === 'XLM' || asset.symbol === 'USDC').map((asset) => {
                       const hasAsset = checkWalletNativeCurrency(asset.symbol)
                       return (
                         <div key={asset.symbol} className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-100">
                           <div className="flex items-center gap-3">
                             <div className="h-10 w-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                              {asset.icon ? (
+                              {asset?.icon ? (
                                 <img src={asset.icon} alt={asset.name} className="w-4 h-4" />
                               ) : (
                                 <span className="text-lg">{asset.symbol.charAt(0)}</span>
@@ -1187,45 +1382,15 @@ export function ThirdwebWalletInterface() {
                             <div>
                               <p className="font-medium text-gray-900">{asset.name}</p>
                               <p className="text-sm text-gray-600">
-                                {hasAsset ? `${formatAssetBalance(0, asset.decimals, asset.symbol)}` : `0.00 ${asset.symbol}`}
+                                {asset.symbol === 'USDC' ? `${usdcStellarBalance}` : `${stellarBalance}`} {asset.symbol}
                               </p>
                             </div>
                           </div>
                           <div className="text-right">
                             <p className="font-medium text-gray-900">
-                              {hasAsset ? `${convertAmount(usdValue)} ${selectedCurrency}` : `0.00 ${selectedCurrency}`}
+                              {exchangeAmount(asset.symbol === 'USDC' ? `${usdcStellarBalance}` : `${stellarBalance}`, asset.symbol, selectedCurrency) || '0.00'}  {selectedCurrency}
                             </p>
-                            <Badge variant={hasAsset ? "default" : "secondary"} className="text-xs">
-                              {hasAsset ? "Available" : "Not Available"}
-                            </Badge>
-                          </div>
-                        </div>
-                      )
-                    })
-                  : getEnabledNativeAssetsFromApi().map((asset) => {
-                      const hasAsset = checkWalletNativeCurrency(asset.symbol)
-                      return (
-                        <div key={asset.symbol} className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-100">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                              {asset.icon ? (
-                                <img src={asset.icon} alt={asset.name} className="w-4 h-4" />
-                              ) : (
-                                <span className="text-lg">{asset.symbol.charAt(0)}</span>
-                              )}
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-900">{asset.name}</p>
-                              <p className="text-sm text-gray-600">
-                                {hasAsset ? `${formatAssetBalance(0, asset.decimals, asset.symbol)}` : `0.00 ${asset.symbol}`}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-medium text-gray-900">
-                              {hasAsset ? `${convertAmount(usdValue)} ${selectedCurrency}` : `0.00 ${selectedCurrency}`}
-                            </p>
-                            <Badge variant={hasAsset ? "default" : "secondary"} className="text-xs">
+                            <Badge variant={hasAsset ? "default" : "secondary"} className="text-xs text-right pr-0">
                               {hasAsset ? "Available" : "Not Available"}
                             </Badge>
                           </div>
@@ -1235,12 +1400,99 @@ export function ThirdwebWalletInterface() {
                 }
               </div>
             </div>
+            )}
+
+
+            {/* Supported Tokens section - Only show when wallet is connected */}
+            {isConnected && address && (
+              <div className="mb-2">
+                <div className="px-0 py-2">
+                  <h3 className="text-md font-bold text-gray-500 mb-1">
+                    Assets {chain?.name?.tx || ''}
+                  </h3>
+                </div>
+                <div className="space-y-0">
+                  {supportedTokensLoading ? (
+                    <div className="p-8 text-center bg-gray-50">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center animate-spin">
+                          <RefreshCwIcon className="h-4 w-4 text-gray-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">Loading tokens...</p>
+                          <p className="text-sm text-gray-600">Fetching supported tokens for {chain?.name}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : supportedTokens.length > 0 ? (
+                    supportedTokens.filter(token => getEnabledNativeAssetsFromApi().some(token2 => token2.symbol.toLowerCase() === token.symbol.toLowerCase())).map((token, index) => (
+                       <div
+                        key={`${token.address}-${index}`}
+                        className={`p-4 flex items-center justify-between bg-gray-50 ${
+                          index !== supportedTokens.length - 1 ? "border-b border-gray-100" : ""
+                        }`}
+                        >
+                        <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            token.type === 'native' ? 'bg-blue-100' : 'bg-green-100'
+                          }`}>
+                            {token.logo ? (
+                              <img src={token.logo} alt={token.symbol} className="w-6 h-6 rounded-full" />
+                            ) : (
+                              <span className={`text-xs font-bold ${
+                                token.type === 'native' ? 'text-blue-600' : 'text-green-600'
+                              }`}>
+                                {token.symbol.slice(0, 2).toUpperCase()}
+                              </span>
+                              )}
+                            </div>
+                            <div>
+                            <p className="font-medium text-gray-900">{token.name}</p>
+                            <p className="text-sm text-gray-600">
+                              {token.balanceFormatted || '0.00'} {token.symbol}
+                            </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                          <p className="font-medium text-gray-900">
+                            {exchangeAmount(token.balanceFormatted, token.symbol, selectedCurrency) || '0.00'}  {selectedCurrency}
+                          </p>
+                          <Badge 
+                            variant={token.type === 'native' ? "default" : "secondary"} 
+                            className={`text-xs ${
+                              token.type === 'native' 
+                                ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                                : 'bg-green-50 text-green-700 border-green-200'
+                            }`}
+                          >
+                            {token.type === 'native' ? 'Native' : 'ERC-20'}
+                          </Badge>
+                        </div>
+                      </div>
+                      
+                    ))
+                  ) : (
+                    <div className="p-8 text-center bg-gray-50">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                          <WalletIcon className="h-6 w-6 text-gray-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">No tokens found</p>
+                          <p className="text-sm text-gray-600">No supported tokens detected in this wallet</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
    
             {/* Recent Transactions section */}
             <div>
-              <div className="px-4 py-2">
-                <h3 className="text-md font-bold text-gray-500 mb-3">Recent Transactions</h3>
+              <div className="px-0 py-2">
+                <h3 className="text-md font-bold text-gray-500 mb-1">Recent Transactions</h3>
               </div>
               <div className="space-y-0">
                 {mockTransactions.length > 0 ? (
@@ -1284,11 +1536,81 @@ export function ThirdwebWalletInterface() {
                     </div>
                     </div>
                   </div>
-                              )}
-                            </div>
+                )}
+              </div>
             </div>
-              </TabsContent>
 
+
+
+
+            {isConnected && address && (
+              <div className="mb-2">
+               <div className="px-0 py-2">
+                 <h3 className="text-md font-bold text-gray-500 mb-1">
+                  Exchange Rates
+                 </h3>
+                </div>
+                <div className="space-y-0">
+                  {supportedTokensLoading ? (
+                    <div className="p-8 text-center bg-gray-50">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center animate-spin">
+                          <RefreshCwIcon className="h-4 w-4 text-gray-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">Loading exchange rates ...</p>
+                          <p className="text-sm text-gray-600">Fetching  exchange rates for {chain?.name} tokens</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : generalExchangeRates.length > 0 && (
+                    generalExchangeRates.filter(token => token?.token_type === 'Native').map((token, index) => (
+                       <div
+                        key={`${token.token_name}-${index}`}
+                        className={`p-4 py-2 flex items-center justify-between bg-gray-50 ${
+                          index !== supportedTokens.length - 1 ? "border-b border-gray-100" : ""
+                        }`}
+                        >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            token.type === 'native' ? 'bg-blue-100' : 'bg-green-100'
+                          }`}>
+                            {token.logo ? (
+                              <img src={token.icon} alt={token.symbol} className="w-6 h-6 rounded-full" />
+                            ) : (
+                              <span className={`text-xs font-bold ${
+                                token.type === 'native' ? 'text-blue-600' : 'text-green-600'
+                              }`}>
+                                {token.symbol.slice(0, 1).toUpperCase()}{token.symbol.slice(-1).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-600">
+                              {token.symbol}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-small text-green-400 text-sm">
+                            <span>Buy</span> {(Number(token?.price?.amount) - (Number(token?.price?.amount)*(Number(token?.price?.buy_markup)/100))).toFixed(2) || ""} {token.price.quote_coin}
+                          </p>
+                          <p className="font-small text-red-400 text-sm">
+                            <span>Sell</span> {((((token?.price?.buy_markup/100)*Number(token?.price?.amount)) + Number(token?.price?.amount))).toFixed(2) || ""} {token.price.quote_coin}
+                          </p>
+                        </div>
+                      </div>
+                      
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          
+          
+          
+          
+              </TabsContent>
           <TabsContent value="transactions" className="mt-6">
             {/* Transactions section */}
                             <div>
@@ -1296,7 +1618,7 @@ export function ThirdwebWalletInterface() {
                 <h3 className="text-xl font-bold text-gray-900 mb-3 flex items-center gap-2">
                   All Transactions
                 </h3>
-              </div>
+          </div>
               <div className="space-y-0">
                 {mockTransactions.length > 0 ? (
                   mockTransactions.map((transaction, index) => (
@@ -1332,7 +1654,7 @@ export function ThirdwebWalletInterface() {
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
                         <ArrowUpIcon className="h-6 w-6 text-gray-400" />
-                        </div>
+              </div>
                       <div>
                         <p className="font-medium text-gray-900">No transactions yet</p>
                         <p className="text-sm text-gray-600">Your transaction history will appear here</p>

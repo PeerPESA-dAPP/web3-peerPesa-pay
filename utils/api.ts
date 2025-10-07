@@ -10,6 +10,7 @@ export const API_BASE_URL = 'https://api.peerpesa.co'
 export const API_ENDPOINTS = {
   SUPPORTED_CURRENCIES: '/dapp/supported/currencies',
   EXCHANGE_RATES: '/dapp/system/withdraw/rates',
+  GENERAL_EXCHANGE_RATES: '/currencies/quote',
   // Add more endpoints as needed
   // USER_PROFILE: '/user/profile',
   // TRANSACTIONS: '/user/transactions',
@@ -250,9 +251,14 @@ export interface ExchangeRate {
 }
 
 export interface ExchangeRatesResponse {
-  rates: ExchangeRate[]
-  baseCurrency: string
-  timestamp: number
+  data?: {
+    rates: ExchangeRate[]
+    baseCurrency: string
+    timestamp: number
+  }
+  rates?: ExchangeRate[]
+  baseCurrency?: string
+  timestamp?: number
 }
 
 /**
@@ -266,6 +272,42 @@ export async function fetchExchangeRates(currency: string = 'USD'): Promise<Exch
     return response
   } catch (error) {
     console.error('Error fetching exchange rates:', error)
+    throw error
+  }
+}
+
+// General exchange rate interfaces
+export interface GeneralExchangeRate {
+  currency: string
+  rate: number
+  timestamp: number
+  source?: string
+}
+
+export interface GeneralExchangeRatesResponse {
+  data?: {
+    rates: GeneralExchangeRate[]
+    base_currency: string
+    quote_currency: string
+    timestamp: number
+  }
+  rates?: GeneralExchangeRate[]
+  base_currency?: string
+  quote_currency?: string
+  timestamp?: number
+}
+
+/**
+ * Fetch general exchange rates for a specific quote currency
+ * @param quoteCurrency - Quote currency code (e.g., 'USD', 'EUR')
+ * @returns Promise with general exchange rates
+ */
+export async function fetchGeneralExchangeRates(quoteCurrency: string = 'USD'): Promise<GeneralExchangeRatesResponse> {
+  try {
+    const response = await apiGet(`${API_ENDPOINTS.GENERAL_EXCHANGE_RATES}/${quoteCurrency}`)
+    return response
+  } catch (error) {
+    console.error('Error fetching general exchange rates:', error)
     throw error
   }
 }
