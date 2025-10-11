@@ -54,7 +54,8 @@ export function ThirdwebProviderWrapper({ children }: ThirdwebProviderWrapperPro
            message.includes('MetaMaskWallet._connect') ||
            message.includes('DialogContent') ||
            message.includes('DialogTitle') ||
-           message.includes('aria-describedby'))
+           message.includes('aria-describedby') ||
+           message.includes('Connection failed'))
         ) {
           // Silently ignore these harmless errors/warnings from thirdweb
           return
@@ -93,8 +94,14 @@ export function ThirdwebProviderWrapper({ children }: ThirdwebProviderWrapperPro
       activeChain={Ethereum}
       supportedChains={supportedChains}
       clientId={process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID}
-      autoConnect={false}
-      autoSwitch={false}
+      autoConnect={true}
+      autoSwitch={true}
+      dAppMeta={{
+        name: "PeerPesa",
+        description: "Your gateway to the decentralized web",
+        logoUrl: "/images/peerpesa-logo.png",
+        url: "https://peerpesa.com",
+      }}
     >
       {children}
     </ThirdwebProvider>

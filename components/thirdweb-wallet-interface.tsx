@@ -10,6 +10,12 @@ import {
   useConnectionStatus,
   useTokenBalance,
   useBalance,
+  useConnect,
+  metamaskWallet,
+  coinbaseWallet,
+  walletConnect,
+  rainbowWallet,
+  trustWallet,
 } from "@thirdweb-dev/react"
 import { 
   StellarWalletsKit, 
@@ -113,6 +119,7 @@ export function ThirdwebWalletInterface() {
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [celoBalance, setCeloBalance] = useState(0.00)
+  const connectWalletRef = useRef<HTMLDivElement>(null)
   const [usdValue, setUsdValue] = useState(0.00)
   const [totalBalanceValue, setTotalBalanceValue] = useState(0.00)
   const [currencyFetching, setCurrencyFetching] = useState(false)
@@ -166,21 +173,112 @@ export function ThirdwebWalletInterface() {
   // Note: For multiple tokens, we'll need to use individual useTokenBalance hooks
   // or implement a different approach to get all token balances
 
-  // Function to programmatically open the ConnectWallet modal
-  const openConnectWallet = () => {
-    // Find the hidden thirdweb ConnectWallet button and click it
-    const container = document.querySelector('#thirdweb-connect-wallet-btn')
-    if (container) {
-      const connectButton = container.querySelector('button')
-      if (connectButton) {
-        connectButton.click()
-      } else {
-        console.warn('ConnectWallet button not found inside container')
-      }
-    } else {
-      console.warn('ConnectWallet container not found')
+  // Function to check if wallet is available
+  const isWalletAvailable = (walletName: string) => {
+    if (typeof window === 'undefined') return false
+    
+    const ethereum = (window as any).ethereum
+    if (!ethereum) return false
+    
+    switch (walletName.toLowerCase()) {
+      case 'metamask':
+        // Check for MetaMask specifically
+        return ethereum.isMetaMask && !ethereum.isBraveWallet && !ethereum.isCoinbaseWallet
+      case 'coinbase':
+        return ethereum.isCoinbaseWallet
+      case 'rainbow':
+        return ethereum.isRainbow
+      case 'trust':
+        return ethereum.isTrust
+      default:
+        return true // For WalletConnect and others
     }
   }
+
+  // Function to open ConnectWallet modal programmatically
+  const openConnectWalletModal = async () => {
+    try {
+      console.log('Attempting to open ConnectWallet modal...')
+      
+      // Wait a bit for the DOM to be ready
+      await new Promise(resolve => setTimeout(resolve, 200))
+      
+      // First try using the ref
+      if (connectWalletRef.current) {
+        const button = connectWalletRef.current.querySelector('button')
+        if (button) {
+          // console.log('Found ConnectWallet button via ref, clicking...')
+          (button as HTMLButtonElement).click()
+          return
+        } else {
+          console.log('No button found in ref container')
+        }
+      } else {
+        console.log('ConnectWallet ref is null')
+      }
+      
+      // Try multiple selectors to find the ConnectWallet button
+      const selectors = [
+        '[data-thirdweb-connect-wallet] button',
+        '[data-testid*="connect-wallet"]',
+        '[data-testid*="connect"]',
+        'button[aria-label*="connect"]',
+        'button:contains("Connect")',
+      ]
+      
+      for (const selector of selectors) {
+        const button = document.querySelector(selector)
+        if (button) {
+          // console.log(`Found ConnectWallet button with selector: ${selector}`)
+          (button as HTMLButtonElement).click()
+          return
+        }
+      }
+      
+      // Try to find any button with "Connect" text
+      const allButtons = document.querySelectorAll('button')
+      for (const button of allButtons) {
+        if (button.textContent?.includes('Connect') || button.textContent?.includes('connect')) {
+          // console.log('Found button with Connect text:', button.textContent)
+          (button as HTMLButtonElement).click()
+          return
+        }
+      }
+      
+      // If no button found, try to trigger via events
+      console.log('No ConnectWallet button found, trying to trigger via events...')
+      
+      // Try multiple event approaches
+      const events = [
+        new CustomEvent('thirdweb:open-modal'),
+        new CustomEvent('connect-wallet'),
+        new Event('click', { bubbles: true }),
+      ]
+      
+      for (const event of events) {
+        window.dispatchEvent(event)
+        document.dispatchEvent(event)
+      }
+      
+      console.log('ConnectWallet modal should be opening...')
+      
+    } catch (error) {
+      console.error('Failed to open ConnectWallet modal:', error)
+    }
+  }
+
+
+
+
+
+  
+  // Function to open the Thirdweb ConnectWallet modal for wallet selection
+  const openConnectWallet = async () => {
+    console.log('Opening ConnectWallet modal for wallet selection...')
+    await openConnectWalletModal()
+  }
+
+
 
   // Function to connect to Albedo wallet using albedo-intent
   const connecttoAlbedo = async () => {
@@ -350,10 +448,6 @@ export function ThirdwebWalletInterface() {
     }
   }
 
-  
-
-
-
 
   // Function to fetch Stellar wallet balance
   const fetchStellarBalance = async (address: string) => {
@@ -471,6 +565,8 @@ export function ThirdwebWalletInterface() {
     return getWalletEnabledNativeAssets(walletAssets, enabledAssets)
   }
 
+
+
   // Function to disconnect from Stellar wallet
   const disconnectStellarWallet = () => {
     setStellarAddress(null)
@@ -531,6 +627,9 @@ export function ThirdwebWalletInterface() {
     }
   }, [])
   const connectionStatus = useConnectionStatus()
+  
+  // Connect hook for direct wallet connection
+  const connect = useConnect()
 
   const isConnected = connectionStatus === "connected"
 
@@ -568,7 +667,7 @@ export function ThirdwebWalletInterface() {
   useEffect(() => {
     
     if (isConnected && address && chain) {
-      fetchSupportedTokens()  
+      fetchSupportedTokens()
     } else {
       setSupportedTokens(currencies)
     }
@@ -728,11 +827,17 @@ export function ThirdwebWalletInterface() {
       // stellar selected populate xlm and usdc
       setSupportedSendTokens(supportedTokens.filter((token: any) => token.symbol === 'XLM' || token.symbol === 'USDC'));
     }
-
+    
     setSupportedSendFiat(currencies.filter((currency: any) => currency.token_type === "fiat" && currency.status === "active"));
     setTotalBalanceValue(total)
   
   }, [supportedTokens, generalExchangeRates, selectedCurrency, walletType, stellarBalance])
+
+
+
+
+
+
 
   const getTransactionIcon = (type: string) => {
     const iconClass = "h-4 w-4"
@@ -785,13 +890,14 @@ export function ThirdwebWalletInterface() {
       <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-md mx-auto px-6">
           <div className="flex justify-between items-center h-16">
+
             <div className="flex items-center">
               <div className="flex items-center" style={{ cursor: "pointer" }} onClick={() => setActiveTab("overview")}>
                 <img src="/images/peerpesa-logo.png" alt="PeerPesa" className="h-10 object-contain" />
               </div>
             </div>
 
-                <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-3">
               {/* Show connected wallet info based on wallet type */}
               {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? (
                 <div className="flex items-center space-x-2">
@@ -802,6 +908,7 @@ export function ThirdwebWalletInterface() {
                         <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
                         Mainnet
                       </Badge>
+
                       <Button
                         variant="outline"
                         size="sm"
@@ -815,10 +922,12 @@ export function ThirdwebWalletInterface() {
                   ) : (
                     // EVM wallet connected
                     <>
-                      <Badge variant="outline" className="text-green-600 border-green-200 hidden sm:flex">
+                  <Badge variant="outline" className="text-green-600 border-green-200 hidden sm:flex">
                     <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                        {getNetworkName(chain ? (chain.chainId as number) : undefined)}
+                    {getNetworkName(chain ? (chain.chainId as number) : undefined)}
                   </Badge>
+
+
                   <Button
                     variant="outline"
                     size="sm"
@@ -1080,8 +1189,21 @@ export function ThirdwebWalletInterface() {
 
 
                 <div className="flex gap-2">
-                 {/* Hidden ConnectWallet button - accessible for programmatic clicks */}
-                 <div id="thirdweb-connect-wallet-btn" style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', overflow: 'hidden' }}>
+                 {/* ConnectWallet button - accessible for programmatic clicks */}
+                 <div 
+                   ref={connectWalletRef}
+                   data-thirdweb-connect-wallet 
+                   style={{ 
+                     position: 'absolute', 
+                     left: '-9999px', 
+                     width: '1px', 
+                     height: '1px', 
+                     overflow: 'hidden',
+                     visibility: 'hidden',
+                     pointerEvents: 'auto',
+                     zIndex: 9999
+                   }}
+                 >
                   <ConnectWallet
                     theme="light"
                     modalSize="compact"
@@ -1090,6 +1212,7 @@ export function ThirdwebWalletInterface() {
                       subtitle: "Your gateway to the decentralized web",
                     }}
                     modalTitleIconUrl="/images/peerpesa-logo.png"
+                    btnTitle="Connect Wallet"
                     /> 
                  </div>
                  <Button
@@ -1378,7 +1501,7 @@ export function ThirdwebWalletInterface() {
               <div className="mb-2">
                 <div className="px-0 py-2">
                   <h3 className="text-md font-bold text-gray-500 mb-1">
-                    Assets {chain?.name?.tx || ''}
+                    Assetsxxxx
                   </h3>
                 </div>
                 <div className="space-y-0">
@@ -1439,7 +1562,6 @@ export function ThirdwebWalletInterface() {
                           </Badge>
                         </div>
                       </div>
-                      
                     ))
                   ) : (
                     <div className="p-8 text-center bg-gray-50">
@@ -1961,10 +2083,13 @@ export function ThirdwebWalletInterface() {
                   <Button
                     variant="outline"
                     className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 transition-all duration-200 bg-transparent"
-                    onClick={() => {
-                      // Close modal and let the header ConnectWallet handle it
-                        setShowWalletModal(false)
-                        openConnectWallet()
+                    onClick={async () => {
+                      // Close modal and trigger ConnectWallet modal
+                      setShowWalletModal(false)
+                      // Small delay to ensure modal is closed, then open ConnectWallet
+                      setTimeout(async () => {
+                        await openConnectWallet()
+                      }, 100)
                     }}
                   >
                     <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">

@@ -28,7 +28,6 @@ interface TransactionFormsProps {
   walletType: string
   onConnectWallet: () => void
   transactionType: string,
-
   assets?: any[],
   currencies?: any[],
   exchangeRates?: any[],
@@ -261,46 +260,10 @@ export function TransactionForms({  onBack,
         )}
 
 
-
+        <p>{JSON.stringify(assets[0])}</p>
+        <p>{JSON.stringify(exchangeRates[0])}</p>
         {/* Wallet Selector Modal */}
-        {showWalletSelector && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Select wallet</h3>
-                <Button variant="ghost" size="sm" onClick={() => setShowWalletSelector(false)}>
-                  ×
-                </Button>
-              </div>
-              <p className="text-sm text-gray-600 mb-6">
-                By connecting your wallet, we will have access to view your address and balance.
-              </p>
-
-              <div className="space-y-3 mb-6">
-                <Label className="text-sm text-gray-500">Recently used</Label>
-                {recentAddresses.map((addr, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100"
-                  >
-                    <span className="font-mono text-sm">{addr.address}</span>
-                    <span className="text-xs text-gray-500">{addr.date}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">🦊</div>
-                  <span className="font-medium">Metamask</span>
-                </div>
-                <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
-                  Connect
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+        
 
         {/* Asset Selector Modal */}
         {showAssetSelector && (
