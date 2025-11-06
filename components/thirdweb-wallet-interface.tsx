@@ -549,7 +549,7 @@ export function ThirdwebWalletInterface() {
 
     // Check if currencies are in API format
     const hasApiFormat = currencies.some(currency => 'isActive' in currency)
-    
+
     if (hasApiFormat) {
       const apiCurrencies = currencies.filter(currency => 'isActive' in currency) as unknown as CurrencyFromAPI[]
       return getNativeAssetsFromApi(apiCurrencies)
@@ -1224,8 +1224,6 @@ export function ThirdwebWalletInterface() {
                       Wallet Connect
                   </Button>
                 </div>
-
-
               )}
             </div>
           </div>
@@ -1451,57 +1449,12 @@ export function ThirdwebWalletInterface() {
               </TabsList>
 
           <TabsContent value="overview" className="mt-1">
-            {/* Assets section */}
-            {walletType === 'stellar' && stellarAddress && (
-             <div className="mb-2">
-              <div className="px-0 py-2">
-                <h3 className="text-md font-bold text-gray-500 mb-1">Assets</h3>
-                    </div>
-              <div className="space-y-0">
-                {/* Display Native assets for current network when wallet is connected, or all Native assets when not connected */}
-                {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) 
-                  && getEnabledNativeAssetsFromApi().filter(asset => asset.symbol === 'XLM' || asset.symbol === 'USDC').map((asset) => {
-                      const hasAsset = checkWalletNativeCurrency(asset.symbol)
-                      return (
-                        <div key={asset.symbol} className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-100">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                              {asset?.icon ? (
-                                <img src={asset.icon} alt={asset.name} className="w-4 h-4" />
-                              ) : (
-                                <span className="text-lg">{asset.symbol.charAt(0)}</span>
-                              )}
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-900">{asset.name}</p>
-                              <p className="text-sm text-gray-600">
-                                {asset.symbol === 'USDC' ? `${usdcStellarBalance}` : `${stellarBalance}`} {asset.symbol}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-medium text-gray-900">
-                              {exchangeAmount(asset.symbol === 'USDC' ? `${usdcStellarBalance}` : `${stellarBalance}`, asset.symbol, selectedCurrency) || '0.00'}  {selectedCurrency}
-                            </p>
-                            <Badge variant={hasAsset ? "default" : "secondary"} className="text-xs text-right pr-0">
-                              {hasAsset ? "Available" : "Not Available"}
-                            </Badge>
-                          </div>
-                        </div>
-                      )
-                    })
-                }
-              </div>
-            </div>
-            )}
-
-
-            {/* Supported Tokens section - Only show when wallet is connected */}
-            {isConnected && address && (
+            {/* Supported Assets section - Only show when wallet is connected */}
+            {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) && (
               <div className="mb-2">
                 <div className="px-0 py-2">
                   <h3 className="text-md font-bold text-gray-500 mb-1">
-                    Assetsxxxx
+                    Supported Assets
                   </h3>
                 </div>
                 <div className="space-y-0">
@@ -1512,57 +1465,92 @@ export function ThirdwebWalletInterface() {
                           <RefreshCwIcon className="h-4 w-4 text-gray-400" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">Loading tokens...</p>
-                          <p className="text-sm text-gray-600">Fetching supported tokens for {chain?.name}</p>
+                          <p className="font-medium text-gray-900">Loading assets...</p>
+                          <p className="text-sm text-gray-600">Fetching supported assets...</p>
                         </div>
                       </div>
                     </div>
-                  ) : supportedTokens.length > 0 ? (
-                    supportedTokens.filter(token => getEnabledNativeAssetsFromApi().some(token2 => token2.symbol.toLowerCase() === token.symbol.toLowerCase())).map((token, index) => (
-                       <div
-                        key={`${token.address}-${index}`}
-                        className={`p-4 flex items-center justify-between bg-gray-50 ${
-                          index !== supportedTokens.length - 1 ? "border-b border-gray-100" : ""
-                        }`}
-                        >
-                        <div className="flex items-center gap-3">
+                  ) : getEnabledNativeAssetsFromApi().length > 0 ? (
+                    (() => {
+                      const filteredAssets = getEnabledNativeAssetsFromApi().filter(asset => {
+                        // For Stellar wallets, only show XLM and USDC
+                        if (walletType === 'stellar' && asset.symbol !== 'XLM' && asset.symbol !== 'USDC') {
+                          return false
+                        }
+                        
+                        // For EVM wallets, show assets that match the current network
+                        if (walletType !== 'stellar' && asset.network !== getCurrentNetwork()) {
+                          return false
+                        }
+                        
+                        return true
+                      })
+                      
+                      return filteredAssets.map((asset, index) => {
+                        const tokenBalance = supportedTokens.find(t => t.symbol?.toLowerCase() === asset.symbol?.toLowerCase())
+                        const balance = tokenBalance?.balanceFormatted || '0.00'
+                        const hasAsset = checkWalletNativeCurrency(asset.symbol)
+                        
+                        return (
+                          <div
+                            key={`${asset.symbol}-${index}`}
+                            className={`p-4 flex items-center justify-between bg-gray-50 ${
+                              index !== filteredAssets.length - 1 ? "border-b border-gray-100" : ""
+                            }`}
+                          >
+                          <div className="flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                            token.type === 'native' ? 'bg-blue-100' : 'bg-green-100'
-                          }`}>
-                            {token.logo ? (
-                              <img src={token.logo} alt={token.symbol} className="w-6 h-6 rounded-full" />
-                            ) : (
-                              <span className={`text-xs font-bold ${
-                                token.type === 'native' ? 'text-blue-600' : 'text-green-600'
-                              }`}>
-                                {token.symbol.slice(0, 2).toUpperCase()}
-                              </span>
+                              asset.type === 'native' ? 'bg-blue-100' : 'bg-green-100'
+                            }`}>
+                              {asset?.icon ? (
+                                <img src={asset.icon} alt={asset.name} className="w-6 h-6 rounded-full" />
+                              ) : (
+                                <span className={`text-xs font-bold ${
+                                  asset.type === 'native' ? 'text-blue-600' : 'text-green-600'
+                                }`}>
+                                  {asset.symbol?.slice(0, 2).toUpperCase() || '--'}
+                                </span>
                               )}
                             </div>
                             <div>
-                            <p className="font-medium text-gray-900">{token.name}</p>
-                            <p className="text-sm text-gray-600">
-                              {token.balanceFormatted || '0.00'} {token.symbol}
-                            </p>
+                              <p className="font-medium text-gray-900">{asset.name || asset.symbol}</p>
+                              <p className="text-sm text-gray-600">
+                                {walletType === 'stellar' && asset.symbol === 'USDC' 
+                                  ? `${usdcStellarBalance} ${asset.symbol}`
+                                  : walletType === 'stellar' && asset.symbol === 'XLM'
+                                  ? `${stellarBalance} ${asset.symbol}`
+                                  : `${balance} ${asset.symbol}`
+                                }
+                              </p>
                             </div>
                           </div>
                           <div className="text-right">
-                          <p className="font-medium text-gray-900">
-                            {exchangeAmount(token.balanceFormatted, token.symbol, selectedCurrency) || '0.00'}  {selectedCurrency}
-                          </p>
-                          <Badge 
-                            variant={token.type === 'native' ? "default" : "secondary"} 
-                            className={`text-xs ${
-                              token.type === 'native' 
-                                ? 'bg-blue-50 text-blue-700 border-blue-200' 
-                                : 'bg-green-50 text-green-700 border-green-200'
-                            }`}
-                          >
-                            {token.type === 'native' ? 'Native' : 'ERC-20'}
-                          </Badge>
+                            <p className="font-medium text-gray-900">
+                              {exchangeAmount(
+                                walletType === 'stellar' && asset.symbol === 'USDC' 
+                                  ? `${usdcStellarBalance}`
+                                  : walletType === 'stellar' && asset.symbol === 'XLM'
+                                  ? `${stellarBalance}`
+                                  : balance,
+                                asset.symbol,
+                                selectedCurrency
+                              ) || '0.00'} {selectedCurrency}
+                            </p>
+                            <Badge 
+                              variant={hasAsset ? "default" : "secondary"} 
+                              className={`text-xs ${
+                                asset.type === 'native' 
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                                  : 'bg-green-50 text-green-700 border-green-200'
+                              }`}
+                            >
+                              {asset.type === 'native' ? 'Native' : 'Token'}
+                            </Badge>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                        )
+                      })
+                    })()
                   ) : (
                     <div className="p-8 text-center bg-gray-50">
                       <div className="flex flex-col items-center gap-3">
@@ -1570,8 +1558,8 @@ export function ThirdwebWalletInterface() {
                           <WalletIcon className="h-6 w-6 text-gray-400" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">No tokens found</p>
-                          <p className="text-sm text-gray-600">No supported tokens detected in this wallet</p>
+                          <p className="font-medium text-gray-900">No assets found</p>
+                          <p className="text-sm text-gray-600">No supported assets available</p>
                         </div>
                       </div>
                     </div>
@@ -1762,25 +1750,27 @@ export function ThirdwebWalletInterface() {
               <>
                 {/* Transaction Statistics */}
             <div className="mb-4">
+              
               <div className="px-6 py-2">
                 <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Statistics</h3>
-          </div>
+              </div>
+              
               <div className="grid grid-cols-2 gap-3 px-6 mb-4">
                 <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
                   <div className="flex items-center gap-2 mb-1">
                     <ArrowUpIcon className="h-4 w-4 text-blue-600" />
                     <p className="text-xs text-gray-600">Total Sent</p>
               </div>
-                  <p className="text-xl font-bold text-blue-600">$1,250</p>
-                  <p className="text-xs text-gray-600">3 transactions</p>
+                  <p className="text-xl font-bold text-blue-600">--</p>
+                  <p className="text-xs text-gray-600">--</p>
                 </div>
                 <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
                   <div className="flex items-center gap-2 mb-1">
                     <ArrowDownIcon className="h-4 w-4 text-green-600" />
                     <p className="text-xs text-gray-600">Total Received</p>
                   </div>
-                  <p className="text-xl font-bold text-green-600">$1,875</p>
-                  <p className="text-xs text-gray-600">2 transactions</p>
+                  <p className="text-xl font-bold text-green-600">--</p>
+                  <p className="text-xs text-gray-600">--</p>
                 </div>
               </div>
             </div>
@@ -1796,19 +1786,19 @@ export function ThirdwebWalletInterface() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-600">Total Volume</span>
-                        <span className="font-semibold text-gray-900">$3,125.50</span>
+                        <span className="font-semibold text-gray-900">--</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-600">Transactions</span>
-                        <span className="font-semibold text-gray-900">4</span>
+                        <span className="font-semibold text-gray-900">--</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-600">Average Transaction</span>
-                        <span className="font-semibold text-gray-900">$781.38</span>
+                        <span className="font-semibold text-gray-900">--</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-600">Net Change</span>
-                        <span className="font-semibold text-green-600">+$625.00</span>
+                        <span className="font-semibold text-green-600">--</span>
                       </div>
                     </div>
                   </CardContent>
@@ -1829,43 +1819,43 @@ export function ThirdwebWalletInterface() {
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs text-gray-600">Monday</span>
-                          <span className="text-xs font-medium text-gray-900">$500</span>
+                          <span className="text-xs font-medium text-gray-900">--</span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-blue-600 h-2 rounded-full" style={{ width: '40%' }}></div>
+                          <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
                         </div>
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs text-gray-600">Tuesday</span>
-                          <span className="text-xs font-medium text-gray-900">$750</span>
+                          <span className="text-xs font-medium text-gray-900">--</span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-green-600 h-2 rounded-full" style={{ width: '60%' }}></div>
+                          <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
                         </div>
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs text-gray-600">Wednesday</span>
-                          <span className="text-xs font-medium text-gray-900">$1,250</span>
+                          <span className="text-xs font-medium text-gray-900">--</span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-purple-600 h-2 rounded-full" style={{ width: '100%' }}></div>
+                          <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
                         </div>
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs text-gray-600">Thursday</span>
-                          <span className="text-xs font-medium text-gray-900">$625</span>
+                          <span className="text-xs font-medium text-gray-900">--</span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-orange-600 h-2 rounded-full" style={{ width: '50%' }}></div>
+                          <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
                             </div>
                             </div>
                           <div>
                          <div className="flex items-center justify-between mb-1">
                           <span className="text-xs text-gray-600">Friday</span>
-                          <span className="text-xs font-medium text-gray-900">$0</span>
+                          <span className="text-xs font-medium text-gray-900">--</span>
                           </div>
                           <div className="w-full bg-gray-200 rounded-full h-2">
                             <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
@@ -1890,10 +1880,10 @@ export function ThirdwebWalletInterface() {
                         <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
                          <span className="text-sm font-medium text-gray-900">Buy</span>
                        </div>
-                      <span className="text-sm font-bold text-blue-600">50%</span>
+                      <span className="text-sm font-bold text-blue-600">--</span>
                     </div>
                     <div className="w-full bg-white rounded-full h-2">
-                      <div className="bg-blue-600 h-2 rounded-full" style={{ width: '50%' }}></div>
+                      <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
                     </div>
                   </div>
 
@@ -1903,10 +1893,10 @@ export function ThirdwebWalletInterface() {
                         <div className="w-3 h-3 bg-red-600 rounded-full"></div>
                         <span className="text-sm font-medium text-gray-900">Sell</span>
                       </div>
-                      <span className="text-sm font-bold text-red-600">25%</span>
+                      <span className="text-sm font-bold text-red-600">--</span>
                     </div>
                     <div className="w-full bg-white rounded-full h-2">
-                      <div className="bg-red-600 h-2 rounded-full" style={{ width: '25%' }}></div>
+                      <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
                     </div>
                   </div>
 
@@ -1916,10 +1906,10 @@ export function ThirdwebWalletInterface() {
                         <div className="w-3 h-3 bg-green-600 rounded-full"></div>
                         <span className="text-sm font-medium text-gray-900">Receive</span>
                       </div>
-                      <span className="text-sm font-bold text-green-600">25%</span>
+                      <span className="text-sm font-bold text-green-600">--</span>
                     </div>
                     <div className="w-full bg-white rounded-full h-2">
-                      <div className="bg-green-600 h-2 rounded-full" style={{ width: '25%' }}></div>
+                      <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
                     </div>
                   </div>
                 </div>
@@ -1939,7 +1929,9 @@ export function ThirdwebWalletInterface() {
                       <div>
                         <p className="font-medium text-gray-900">Wallet Connected</p>
                         <p className="text-sm text-gray-600">
-                          {isConnected && address
+                          {walletType === 'stellar' && stellarAddress
+                            ? `${stellarAddress.slice(0, 6)}...${stellarAddress.slice(-4)}`
+                            : isConnected && address
                             ? `${address.slice(0, 6)}...${address.slice(-4)}`
                             : "Not connected"}
                         </p>
@@ -1947,12 +1939,12 @@ export function ThirdwebWalletInterface() {
                     </div>
                     <Badge
                       className={
-                        isConnected
+                        (isConnected && address) || (walletType === 'stellar' && stellarAddress)
                           ? "bg-green-50 text-green-700 border-green-200"
                           : "bg-gray-50 text-gray-700 border-gray-200"
                       }
                     >
-                      {isConnected ? "Active" : "Inactive"}
+                      {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? "Active" : "Inactive"}
                     </Badge>
                   </div>
 
@@ -1962,7 +1954,9 @@ export function ThirdwebWalletInterface() {
                       <div>
                         <p className="font-medium text-gray-900">Network</p>
                         <p className="text-sm text-gray-600">
-                          {getNetworkName(chain ? (chain.chainId as number) : undefined)}
+                          {walletType === 'stellar' 
+                            ? 'Stellar'
+                            : getNetworkName(chain ? (chain.chainId as number) : undefined)}
                         </p>
                       </div>
                     </div>
@@ -1974,7 +1968,7 @@ export function ThirdwebWalletInterface() {
                       <TrendingUpIcon className="h-4 w-4 text-blue-500" />
                       <div>
                         <p className="font-medium text-gray-900">Portfolio Performance</p>
-                        <p className="text-sm text-gray-600">+12.5% this month</p>
+                        <p className="text-sm text-gray-600">--</p>
                       </div>
                     </div>
                     <Badge className="bg-blue-50 text-blue-700 border-blue-200">Tracking</Badge>
@@ -1985,7 +1979,7 @@ export function ThirdwebWalletInterface() {
                       <RefreshCwIcon className="h-4 w-4 text-orange-500" />
                       <div>
                         <p className="font-medium text-gray-900">Auto-Sync</p>
-                        <p className="text-sm text-gray-600">Last synced 2 min ago</p>
+                        <p className="text-sm text-gray-600">--</p>
                       </div>
                     </div>
                     <Badge className="bg-orange-50 text-orange-700 border-orange-200">Enabled</Badge>
