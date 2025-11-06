@@ -259,9 +259,6 @@ export function TransactionForms({  onBack,
           </div>
         )}
 
-
-        <p>{JSON.stringify(assets[0])}</p>
-        <p>{JSON.stringify(exchangeRates[0])}</p>
         {/* Wallet Selector Modal */}
         
 

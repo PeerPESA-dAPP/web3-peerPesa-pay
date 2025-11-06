@@ -44,7 +44,7 @@ const defaultUSD: Currency = {
 
 // Create default context value
 const defaultCurrencyContext: CurrencyContextType = {
-  currencies: [defaultUSD],
+  currencies: [],
   selectedCurrency: 'USD',
   setSelectedCurrency: () => {},
   loading: false,
