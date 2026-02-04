@@ -291,8 +291,9 @@ export function WagmiWalletInterface() {
             <TransactionForms 
               onBack={() => {}}
               isWalletConnected={isConnected}
-              walletType={connectors.find(c => c.id === 'walletConnect')?.name || 'WalletConnect'}
+              walletType={chain ? getChainName(chain.id) : 'WalletConnect'}
               onConnectWallet={() => setShowWalletModal(true)}
+              walletNetwork={chain ? getChainName(chain.id) : undefined}
             />
           </TabsContent>
           

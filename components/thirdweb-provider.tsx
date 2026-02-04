@@ -100,7 +100,7 @@ export function ThirdwebProviderWrapper({ children }: ThirdwebProviderWrapperPro
         name: "PeerPesa",
         description: "Your gateway to the decentralized web",
         logoUrl: "/images/peerpesa-logo.png",
-        url: "https://peerpesa.com",
+        url: "https://peerpesa.co",
       }}
     >
       {children}

@@ -30,7 +30,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TransactionForms } from "./transaction-forms"
-import { useStandaloneCurrency } from "@/contexts/CurrencyContext"
+import { useCurrency } from "@/contexts/CurrencyContext"
 import { 
   WalletAsset, 
   EnabledAsset, 
@@ -112,7 +112,7 @@ export function ThirdwebWalletInterface() {
     loading: currencyLoading,
     error: currencyError,
     refetch: refetchCurrencies
-  } = useStandaloneCurrency()
+  } = useCurrency()
   const [showTransactionForms, setShowTransactionForms] = useState(false)
   const [activeFormService, setActiveFormService] = useState("send")
   const [transactionType, setTransactionType] = useState<"send" | "buy" | "swap">("send")
@@ -671,7 +671,7 @@ export function ThirdwebWalletInterface() {
     } else {
       setSupportedTokens(currencies)
     }
-    setSupportedSendFiat(currencies.filter((currency: any) => currency.token_type === "fiat" && currency.status === "active"));
+    setSupportedSendFiat(currencies.filter((currency: any) => currency.token_type?.toLowerCase() === "fiat" && (currency.coin_status === "active" || currency.status === "active")));
 
   }, [isConnected, address, chain, nativeBalance, currencies])
 
@@ -828,7 +828,7 @@ export function ThirdwebWalletInterface() {
       setSupportedSendTokens(supportedTokens.filter((token: any) => token.symbol === 'XLM' || token.symbol === 'USDC'));
     }
     
-    setSupportedSendFiat(currencies.filter((currency: any) => currency.token_type === "fiat" && currency.status === "active"));
+    setSupportedSendFiat(currencies.filter((currency: any) => currency.token_type?.toLowerCase() === "fiat" && (currency.coin_status === "active" || currency.status === "active")));
     setTotalBalanceValue(total)
   
   }, [supportedTokens, generalExchangeRates, selectedCurrency, walletType, stellarBalance])
@@ -1326,7 +1326,7 @@ export function ThirdwebWalletInterface() {
                               </button>
                   </div>
                             ) : (
-                              currencies.length > 0 && currencies.filter((currency: any) => currency.token_type === "fiat" && currency.status === "active").map((currency) => (
+                              currencies.length > 0 && currencies.filter((currency: any) => currency.token_type?.toLowerCase() === "fiat" && (currency.coin_status === "active" || currency.status === "active")).map((currency) => (
                               <button  
                                 key={currency.symbol}
                                 className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg cursor-pointer flex items-center justify-between ${
@@ -1409,6 +1409,7 @@ export function ThirdwebWalletInterface() {
           assets={supportedSendTokens}
           currencies={supportedSendFiat}
           mainWalletType={walletType}
+          walletNetwork={walletType === "stellar" ? "Stellar" : (chain ? getNetworkName(chain.chainId as number) : undefined)}
           exchangeRates={exchangeRates}
           connectedWallet={""}
           connectWalletBalance={0}
