@@ -8,6 +8,7 @@ import { ThirdwebProviderWrapper } from "@/components/thirdweb-provider"
 import { GlobalErrorHandler } from "@/components/global-error-handler"
 import { SettingsProvider } from "@/contexts/SettingsContext"
 import { TransactionProvider } from "@/contexts/TransactionContext"
+import { CurrencyProvider } from "@/contexts/CurrencyContext"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -30,10 +31,12 @@ export default function RootLayout({
         <GlobalErrorHandler>
           <ThirdwebProviderWrapper>
             <SettingsProvider>
-              <TransactionProvider>
-                <Suspense fallback={null}>{children}</Suspense>
-                <Analytics />
-              </TransactionProvider>
+              <CurrencyProvider>
+                <TransactionProvider>
+                  <Suspense fallback={null}>{children}</Suspense>
+                  <Analytics />
+                </TransactionProvider>
+              </CurrencyProvider>
             </SettingsProvider>
           </ThirdwebProviderWrapper>
         </GlobalErrorHandler>

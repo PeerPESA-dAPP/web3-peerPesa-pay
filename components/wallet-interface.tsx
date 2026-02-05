@@ -842,6 +842,7 @@ export function WalletInterface() {
         isWalletConnected={isWalletConnected}
         walletType={walletType}
         onConnectWallet={() => (isWalletConnected ? disconnectWallet() : setShowWalletModal(true))}
+        walletNetwork={chain ? chain.name : undefined}
       />
     )
   }

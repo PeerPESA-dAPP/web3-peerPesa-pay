@@ -1,4 +1,4 @@
-'use client'
+ 'use client'
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { fetchSupportedCurrencies, getDefaultCurrencies, ApiError, fetchExchangeRates, ExchangeRate, fetchGeneralExchangeRates, GeneralExchangeRate } from '@/utils/api'
