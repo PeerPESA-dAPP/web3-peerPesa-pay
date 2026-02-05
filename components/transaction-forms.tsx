@@ -135,15 +135,25 @@ export function TransactionForms({  onBack,
     }
   }
 
-  // Get icon URL for currency (API icon may be symbol or URL path)
+  // Fiat currency to country code (for flagcdn.com country flags)
+  const FIAT_TO_COUNTRY: Record<string, string> = {
+    UGX: "ug", KES: "ke", NGN: "ng", TZS: "tz", GHS: "gh", ZAR: "za",
+    GBP: "gb", USD: "us", AED: "ae", ETB: "et", EUR: "eu",
+  }
+
+  // Get icon URL: country flags for fiat, public/flag for native
   const getCurrencyIconUrl = (asset: any): string | null => {
-    const icon = asset?.icon
-    if (!icon) return null
-    if (typeof icon === "string" && icon.startsWith("http")) return icon
-    if (typeof icon === "string" && icon.startsWith("/")) return `${API_BASE_URL}${icon}`
-    const symbol = (asset?.symbol || icon || "").toLowerCase()
+    const symbol = (asset?.symbol || asset?.icon || "").toString().trim()
     if (!symbol) return null
-    return `https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color/${symbol}.svg`
+    if (typeof asset?.icon === "string" && asset.icon.startsWith("http")) return asset.icon
+    if (typeof asset?.icon === "string" && asset.icon.startsWith("/")) return `${API_BASE_URL}${asset.icon}`
+    const sym = symbol.toUpperCase()
+    if (FIAT_TO_COUNTRY[sym]) {
+      return `https://flagcdn.com/w40/${FIAT_TO_COUNTRY[sym]}.png`
+    }
+    // Native: use public/flag (celo, cusd, usdc, usdt, xlm)
+    const filename = symbol.toLowerCase() === "usd" ? "USD" : symbol.toLowerCase()
+    return `/flag/${filename}.png`
   }
 
   // Check if coin supports the given network (compare lowercase for case-insensitive match)
@@ -204,9 +214,9 @@ export function TransactionForms({  onBack,
   const [fromCurrency, setFromCurrency] = useState("")
   const [toCurrency, setToCurrency] = useState("")
 
-  // Swap: get networks for from/to currencies
+  // Swap: From = wallet network only, To = all native (swapToCrypto from full list)
   const swapFromCrypto = cryptoNativeAssetsForWallet.find((c: any) => c.symbol === fromCurrency)
-  const swapToCrypto = cryptoNativeAssetsForWallet.find((c: any) => c.symbol === toCurrency)
+  const swapToCrypto = cryptoNativeAssets.find((c: any) => c.symbol === toCurrency)
   const swapFromNetworks = swapFromCrypto ? getCoinNetworks(swapFromCrypto) : []
   const swapToNetworks = swapToCrypto ? getCoinNetworks(swapToCrypto) : []
   useEffect(() => {
@@ -228,17 +238,18 @@ export function TransactionForms({  onBack,
     }
   }, [activeTab, toCurrency, swapToNetworks])
 
-  // Set default swap currencies when native assets load
+  // Set default swap currencies: From = first wallet asset, To = first other native
   useEffect(() => {
-    if (activeTab === "swap" && cryptoNativeAssetsForWallet.length >= 2) {
+    if (activeTab === "swap" && cryptoNativeAssetsForWallet.length > 0 && cryptoNativeAssets.length > 0) {
       if (!fromCurrency || !cryptoNativeAssetsForWallet.some((c: any) => c.symbol === fromCurrency)) {
         setFromCurrency(cryptoNativeAssetsForWallet[0]?.symbol ?? "")
       }
-      if (!toCurrency || !cryptoNativeAssetsForWallet.some((c: any) => c.symbol === toCurrency)) {
-        setToCurrency(cryptoNativeAssetsForWallet[1]?.symbol ?? "")
+      const toOptions = cryptoNativeAssets.filter((c: any) => c.symbol !== fromCurrency)
+      if (!toCurrency || !cryptoNativeAssets.some((c: any) => c.symbol === toCurrency) || toCurrency === fromCurrency) {
+        setToCurrency(toOptions[0]?.symbol ?? cryptoNativeAssets[0]?.symbol ?? "")
       }
     }
-  }, [activeTab, cryptoNativeAssetsForWallet, fromCurrency, toCurrency])
+  }, [activeTab, cryptoNativeAssetsForWallet, cryptoNativeAssets, fromCurrency, toCurrency])
   const [fromAmount, setFromAmount] = useState("")
   const [toAmount, setToAmount] = useState("")
 
@@ -592,7 +603,7 @@ export function TransactionForms({  onBack,
                               <img 
                                 src={iconUrl} 
                                 alt={sendCurrency} 
-                                className="absolute inset-0 w-full h-full object-contain p-1.5"
+                                className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
                                 onError={(e) => { e.currentTarget.style.display = "none" }}
                               />
                             ) : null
@@ -616,9 +627,9 @@ export function TransactionForms({  onBack,
                                       className="bg-white hover:bg-gray-50"
                                     >
                                       <div className="flex items-center gap-2">
-                                        <div className="w-6 h-6 rounded-full flex items-center justify-center overflow-hidden bg-gray-100 shrink-0">
+                                        <div className="w-5 h-5 rounded-full flex items-center justify-center overflow-hidden bg-gray-100 shrink-0">
                                           {iconUrl ? (
-                                            <img src={iconUrl} alt={asset.symbol} className="w-5 h-5 object-contain" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                            <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />
                                           ) : (
                                             <span className="text-[10px] font-bold text-gray-600">{asset.symbol?.slice(0, 2)}</span>
                                           )}
@@ -682,32 +693,53 @@ export function TransactionForms({  onBack,
                     </div>
                   </div>
 
-                  {/* Receiver Gets Section */}
+                  {/* Receiver Gets Section - Fiat with icons from public/flag */}
                   <div className="bg-white rounded-xl p-4 border border-gray-200">
                     <div className="text-sm text-gray-500 mb-3">Receiver gets</div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
-                          <span className="text-xs font-bold text-red-600">PL</span>
+                        <div className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-gray-100 shrink-0">
+                          <span className="text-xs font-bold text-red-600">{receiveCurrency?.slice(0, 2) || "--"}</span>
+                          {(() => {
+                            const iconUrl = getCurrencyIconUrl({ symbol: receiveCurrency })
+                            return iconUrl ? (
+                              <img 
+                                src={iconUrl} 
+                                alt={receiveCurrency} 
+                                className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                                onError={(e) => { e.currentTarget.style.display = "none" }}
+                              />
+                            ) : null
+                          })()}
                         </div>
                         <div>
                           <Select value={receiveCurrency} onValueChange={setReceiveCurrency}>
-                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto">
+                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto min-w-[120px]">
                               <SelectValue>
-                                <div className="font-medium text-gray-900">{receiveCurrency}</div>
+                                <div className="font-medium text-gray-900">{receiveCurrency || "Select"}</div>
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white max-h-[300px]">
                               {fiatCurrencies && fiatCurrencies.length > 0 ? (
-                                fiatCurrencies.map((currency) => (
+                                fiatCurrencies.map((currency) => {
+                                  const iconUrl = getCurrencyIconUrl(currency)
+                                  return (
                                     <SelectItem 
                                       key={currency.symbol} 
                                       value={currency.symbol} 
                                       className="bg-white hover:bg-gray-50"
                                     >
-                                      {currency.symbol}
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                          {iconUrl && (
+                                            <img src={iconUrl} alt={currency.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                          )}
+                                        </div>
+                                        <span>{currency.symbol}</span>
+                                      </div>
                                     </SelectItem>
-                                  ))
+                                  )
+                                })
                               ) : (
                                 <div className="p-4 text-center text-sm text-gray-500">
                                   No currencies available
@@ -1007,34 +1039,53 @@ export function TransactionForms({  onBack,
               {/* Buy Tab Content */}
               {activeTab === "buy" && (
                 <div className="space-y-6">
-                  {/* I will pay Section - Fiat */}
+                  {/* I will pay Section - Fiat with icons from public/flag */}
                   <div className="bg-white rounded-xl p-4 border border-gray-200">
                     <div className="text-sm text-gray-500 mb-3">I will pay</div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                          <span className="text-xs font-bold text-green-600">
-                            {receiveCurrency?.slice(0, 2) || "FI"}
-                          </span>
+                        <div className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-gray-100 shrink-0">
+                          <span className="text-xs font-bold text-green-600">{receiveCurrency?.slice(0, 2) || "FI"}</span>
+                          {(() => {
+                            const iconUrl = getCurrencyIconUrl({ symbol: receiveCurrency })
+                            return iconUrl ? (
+                              <img 
+                                src={iconUrl} 
+                                alt={receiveCurrency} 
+                                className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                                onError={(e) => { e.currentTarget.style.display = "none" }}
+                              />
+                            ) : null
+                          })()}
                         </div>
                         <div>
                           <Select value={receiveCurrency} onValueChange={setReceiveCurrency}>
-                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto">
+                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto min-w-[120px]">
                               <SelectValue>
-                                <div className="font-medium text-gray-900">{receiveCurrency}</div>
+                                <div className="font-medium text-gray-900">{receiveCurrency || "Select"}</div>
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white max-h-[300px]">
                               {fiatCurrencies && fiatCurrencies.length > 0 ? (
-                                fiatCurrencies.map((currency) => (
-                                  <SelectItem 
-                                    key={currency.symbol} 
-                                    value={currency.symbol} 
-                                    className="bg-white hover:bg-gray-50"
-                                  >
-                                    {currency.symbol}
-                                  </SelectItem>
-                                ))
+                                fiatCurrencies.map((currency) => {
+                                  const iconUrl = getCurrencyIconUrl(currency)
+                                  return (
+                                    <SelectItem 
+                                      key={currency.symbol} 
+                                      value={currency.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                          {iconUrl && (
+                                            <img src={iconUrl} alt={currency.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                          )}
+                                        </div>
+                                        <span>{currency.symbol}</span>
+                                      </div>
+                                    </SelectItem>
+                                  )
+                                })
                               ) : (
                                 <div className="p-4 text-center text-sm text-gray-500">
                                   No currencies available
@@ -1069,34 +1120,52 @@ export function TransactionForms({  onBack,
                     </div>
                   </div>
 
-                  {/* I want to buy Section - Crypto with Network */}
+                  {/* I want to buy Section - Crypto with icons from public/flag, Network selector */}
                   <div className="bg-white rounded-xl p-4 border border-gray-200">
                     <div className="text-sm text-gray-500 mb-3">I want to buy</div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                          <span className="text-xs font-bold text-blue-600">
-                            {sendCurrency?.slice(0, 2) || "CR"}
-                          </span>
+                        <div className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-gray-100 shrink-0">
+                          <span className="text-xs font-bold text-blue-600">{sendCurrency?.slice(0, 2) || "CR"}</span>
+                          {getCurrencyIconUrl({ symbol: sendCurrency }) && (
+                            <img 
+                              src={getCurrencyIconUrl({ symbol: sendCurrency })!} 
+                              alt={sendCurrency} 
+                              className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                              onError={(e) => { e.currentTarget.style.display = "none" }}
+                            />
+                          )}
                         </div>
                         <div>
                           <Select value={sendCurrency} onValueChange={setSendCurrency}>
-                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto">
+                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto min-w-[120px]">
                               <SelectValue>
-                                <div className="font-medium text-gray-900">{sendCurrency}</div>
+                                <div className="font-medium text-gray-900">{sendCurrency || "Select"}</div>
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white max-h-[300px]">
                               {cryptoNativeAssetsForWallet && cryptoNativeAssetsForWallet.length > 0 ? (
-                                cryptoNativeAssetsForWallet.map((asset) => (
-                                  <SelectItem 
-                                    key={asset.symbol} 
-                                    value={asset.symbol} 
-                                    className="bg-white hover:bg-gray-50"
-                                  >
-                                    {asset.symbol || asset.token_name}
-                                  </SelectItem>
-                                ))
+                                cryptoNativeAssetsForWallet.map((asset) => {
+                                  const iconUrl = getCurrencyIconUrl(asset)
+                                  return (
+                                    <SelectItem 
+                                      key={asset.symbol} 
+                                      value={asset.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                          {iconUrl ? (
+                                            <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                          ) : (
+                                            <span className="text-[10px] font-bold text-gray-600">{asset.symbol?.slice(0, 2)}</span>
+                                          )}
+                                        </div>
+                                        <span>{asset.symbol || asset.token_name}</span>
+                                      </div>
+                                    </SelectItem>
+                                  )
+                                })
                               ) : (
                                 <div className="p-4 text-center text-sm text-gray-500">
                                   No assets available
@@ -1323,40 +1392,60 @@ export function TransactionForms({  onBack,
               {/* Swap Tab Content */}
               {activeTab === "swap" && (
                 <div className="space-y-6">
-                  {/* From Section - Native tokens only */}
+                  {/* From Section - Native tokens on wallet's connected network only, icons from public/flag */}
                   <div className="bg-white rounded-xl p-4 border border-gray-200">
                     <div className="text-sm text-gray-500 mb-3">From</div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                        <div className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-gray-100 shrink-0">
                           <span className="text-xs font-bold text-blue-600">{fromCurrency?.slice(0, 2) || "--"}</span>
+                          {getCurrencyIconUrl({ symbol: fromCurrency }) && (
+                            <img 
+                              src={getCurrencyIconUrl({ symbol: fromCurrency })!} 
+                              alt={fromCurrency} 
+                              className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                              onError={(e) => { e.currentTarget.style.display = "none" }}
+                            />
+                          )}
                         </div>
                         <div>
                           <Select value={fromCurrency} onValueChange={setFromCurrency}>
-                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto">
+                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto min-w-[120px]">
                               <SelectValue>
                                 <div className="font-medium text-gray-900">{fromCurrency || "Select"}</div>
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white max-h-[300px]">
                               {cryptoNativeAssetsForWallet && cryptoNativeAssetsForWallet.length > 0 ? (
-                                cryptoNativeAssetsForWallet.map((asset) => (
-                                  <SelectItem 
-                                    key={asset.symbol} 
-                                    value={asset.symbol} 
-                                    className="bg-white hover:bg-gray-50"
-                                  >
-                                    {asset.symbol || asset.token_name}
-                                  </SelectItem>
-                                ))
+                                cryptoNativeAssetsForWallet.map((asset) => {
+                                  const iconUrl = getCurrencyIconUrl(asset)
+                                  return (
+                                    <SelectItem 
+                                      key={asset.symbol} 
+                                      value={asset.symbol} 
+                                      className="bg-white hover:bg-gray-50"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                          {iconUrl ? (
+                                            <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                          ) : (
+                                            <span className="text-[10px] font-bold text-gray-600">{asset.symbol?.slice(0, 2)}</span>
+                                          )}
+                                        </div>
+                                        <span>{asset.symbol || asset.token_name}</span>
+                                      </div>
+                                    </SelectItem>
+                                  )
+                                })
                               ) : (
                                 <div className="p-4 text-center text-sm text-gray-500">
-                                  No assets available
+                                  {walletNetwork ? `No native tokens for ${walletNetwork}. Connect wallet on supported network.` : "Connect wallet to see assets"}
                                 </div>
                               )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Native Token</div>
+                          <div className="text-sm text-gray-500">Native (on {walletNetwork || "network"})</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -1423,34 +1512,54 @@ export function TransactionForms({  onBack,
                     </div>
                   </div>
 
-                  {/* To Section - Native tokens only */}
+                  {/* To Section - All native tokens with icons from public/flag, network selector */}
                   <div className="bg-white rounded-xl p-4 border border-gray-200">
                     <div className="text-sm text-gray-500 mb-3">To</div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                        <div className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-gray-100 shrink-0">
                           <span className="text-xs font-bold text-green-600">{toCurrency?.slice(0, 2) || "--"}</span>
+                          {getCurrencyIconUrl({ symbol: toCurrency }) && (
+                            <img 
+                              src={getCurrencyIconUrl({ symbol: toCurrency })!} 
+                              alt={toCurrency} 
+                              className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                              onError={(e) => { e.currentTarget.style.display = "none" }}
+                            />
+                          )}
                         </div>
                         <div>
                           <Select value={toCurrency} onValueChange={setToCurrency}>
-                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto">
+                            <SelectTrigger className="border-0 p-0 h-auto bg-transparent w-auto min-w-[120px]">
                               <SelectValue>
                                 <div className="font-medium text-gray-900">{toCurrency || "Select"}</div>
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white max-h-[300px]">
-                              {cryptoNativeAssetsForWallet && cryptoNativeAssetsForWallet.length > 0 ? (
-                                cryptoNativeAssetsForWallet
+                              {cryptoNativeAssets && cryptoNativeAssets.length > 0 ? (
+                                cryptoNativeAssets
                                   .filter((asset: any) => asset.symbol !== fromCurrency)
-                                  .map((asset) => (
-                                    <SelectItem 
-                                      key={asset.symbol} 
-                                      value={asset.symbol} 
-                                      className="bg-white hover:bg-gray-50"
-                                    >
-                                      {asset.symbol || asset.token_name}
-                                    </SelectItem>
-                                  ))
+                                  .map((asset) => {
+                                    const iconUrl = getCurrencyIconUrl(asset)
+                                    return (
+                                      <SelectItem 
+                                        key={asset.symbol} 
+                                        value={asset.symbol} 
+                                        className="bg-white hover:bg-gray-50"
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                            {iconUrl ? (
+                                              <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                            ) : (
+                                              <span className="text-[10px] font-bold text-gray-600">{asset.symbol?.slice(0, 2)}</span>
+                                            )}
+                                          </div>
+                                          <span>{asset.symbol || asset.token_name}</span>
+                                        </div>
+                                      </SelectItem>
+                                    )
+                                  })
                               ) : (
                                 <div className="p-4 text-center text-sm text-gray-500">
                                   No assets available
@@ -1467,10 +1576,10 @@ export function TransactionForms({  onBack,
                         </div>
                       </div>
                     </div>
-                    {/* Network selector for To */}
+                    {/* Network selector for To - switch target network */}
                     {toCurrency && swapToNetworks.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-gray-100">
-                        <Label className="text-sm text-gray-500 mb-2 block">Network</Label>
+                        <Label className="text-sm text-gray-500 mb-2 block">Receive on network</Label>
                         <Select value={swapToNetwork} onValueChange={setSwapToNetwork}>
                           <SelectTrigger className="w-full">
                             <SelectValue placeholder="Select network" />
