@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { API_BASE_URL } from "@/utils/api"
 import { Button } from "@/components/ui/button"
@@ -38,6 +38,13 @@ interface TransactionFormsProps {
   mainWalletType?: any
   /** Wallet's connected network (e.g. "Celo", "Base", "Stellar") - filters coins to those supporting this network */
   walletNetwork?: string
+  /** Initial swap params from URL (rhino.fi style: chainIn, chainOut, token, tokenOut) */
+  initialSwapParams?: {
+    chainIn?: string
+    chainOut?: string
+    token?: string
+    tokenOut?: string
+  }
 }
 
 export function TransactionForms({  onBack, 
@@ -51,7 +58,8 @@ export function TransactionForms({  onBack,
                                     connectedWallet,
                                     connectWalletBalance,
                                     mainWalletType,
-                                    walletNetwork
+                                    walletNetwork,
+                                    initialSwapParams
                                  }: TransactionFormsProps) {
   const [activeTab, setActiveTab] = useState(transactionType)
   const [showReview, setShowReview] = useState(false)
@@ -88,10 +96,11 @@ export function TransactionForms({  onBack,
   const [isVerifyingPaymentPhone, setIsVerifyingPaymentPhone] = useState(false)
   const [selectedCountry, setSelectedCountry] = useState("")
   const [paymentPhoneHolderName, setPaymentPhoneHolderName] = useState("")
-  const [buySelectedNetwork, setBuySelectedNetwork] = useState("")
   const [swapFromNetwork, setSwapFromNetwork] = useState("")
   const [swapToNetwork, setSwapToNetwork] = useState("")
-  
+  const appliedInitialSwapParams = useRef(false)
+  const appliedInitialChainParams = useRef(false)
+
   // Get countries from Settings Context
   const { countries, loading: countriesLoading } = useSettings()
   
@@ -118,12 +127,12 @@ export function TransactionForms({  onBack,
       (c.coin_status === "active" || c.status === "active" || c.status === true || c.isActive === true)
   )
 
-  // Crypto Native assets (API uses coin_status, networks as JSON string)
+  // Crypto assets: include all coins with token_type Native/native
   const cryptoNativeAssets = allCurrencies.filter(
     (c: any) =>
-      (c.token_type === "Native" || c.token_type === "native") &&
-      (c.coin_status === "active" || c.status === "active" || c.status === true)
+      (c.token_type === "Native" || c.token_type === "native") && (c.coin_status === "active")  
   )
+
 
   // Parse networks from coin (API returns JSON string)
   const getCoinNetworks = (coin: any) => {
@@ -135,41 +144,98 @@ export function TransactionForms({  onBack,
     }
   }
 
-  // Fiat currency to country code (for flagcdn.com country flags)
-  const FIAT_TO_COUNTRY: Record<string, string> = {
-    UGX: "ug", KES: "ke", NGN: "ng", TZS: "tz", GHS: "gh", ZAR: "za",
-    GBP: "gb", USD: "us", AED: "ae", ETB: "et", EUR: "eu",
-  }
-
-  // Get icon URL: country flags for fiat, public/flag for native
+  // Get icon URL from local /flag by currency symbol
   const getCurrencyIconUrl = (asset: any): string | null => {
     const symbol = (asset?.symbol || asset?.icon || "").toString().trim()
     if (!symbol) return null
     if (typeof asset?.icon === "string" && asset.icon.startsWith("http")) return asset.icon
     if (typeof asset?.icon === "string" && asset.icon.startsWith("/")) return `${API_BASE_URL}${asset.icon}`
-    const sym = symbol.toUpperCase()
-    if (FIAT_TO_COUNTRY[sym]) {
-      return `https://flagcdn.com/w40/${FIAT_TO_COUNTRY[sym]}.png`
-    }
-    // Native: use public/flag (celo, cusd, usdc, usdt, xlm)
+
     const filename = symbol.toLowerCase() === "usd" ? "USD" : symbol.toLowerCase()
     return `/flag/${filename}.png`
   }
 
-  // Check if coin supports the given network (compare lowercase for case-insensitive match)
-  const coinSupportsNetwork = (coin: any, networkName: string): boolean => {
-    if (!networkName) return true
-    const networks = getCoinNetworks(coin)
-    const walletNet = networkName.toLowerCase()
-    return networks.some((net: any) => 
-      (net.network?.toLowerCase() === walletNet) || (net.label?.toLowerCase() === walletNet)
-    )
+  const formatFee = (amount: string | number, currency: string): string => {
+    const numericAmount = typeof amount === "number" ? amount : Number(amount)
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return `0 ${currency || ""}`.trim()
+    }
+
+    const fee = numericAmount * 0.025
+    const formattedFee = fee % 1 === 0 ? fee.toString() : fee.toFixed(4).replace(/\.?0+$/, "")
+    return `${formattedFee} ${currency || ""}`.trim()
   }
 
-  // Crypto assets filtered by wallet's connected network
-  const cryptoNativeAssetsForWallet = walletNetwork
-    ? cryptoNativeAssets.filter((c: any) => coinSupportsNetwork(c, walletNetwork))
-    : cryptoNativeAssets
+  const isStellarNetworkName = (value: string): boolean => value.toLowerCase().includes("stellar")
+
+  const hasExactStellarNetwork = (coin: any): boolean => {
+    const networks = getCoinNetworks(coin)
+    return networks.some((net: any) => String(net?.network || "").toUpperCase() === "STELLAR")
+  }
+
+  const coinSupportsStellar = (coin: any): boolean => {
+    const symbol = String(coin?.symbol || "").toUpperCase()
+    if (symbol === "XXLM" || symbol === "XLM") return true
+    return hasExactStellarNetwork(coin)
+  }
+
+  const coinSupportsEvm = (coin: any): boolean => {
+    const networks = getCoinNetworks(coin)
+    return networks.some((net: any) => {
+      const networkName = (net.network || "").toLowerCase()
+      const networkLabel = (net.label || "").toLowerCase()
+      return !networkName.includes("stellar") && !networkLabel.includes("stellar")
+    })
+  }
+
+  // If no wallet is connected, show all assets.
+  // If connected wallet is Stellar, show Stellar-supported coins only.
+  // Otherwise, show EVM-supported coins.
+  const isStellarWalletConnected =
+    isWalletConnected &&
+    (walletType?.toLowerCase().includes("stellar") || (walletNetwork ? isStellarNetworkName(walletNetwork) : false))
+
+  const cryptoNativeAssetsForWallet = !isWalletConnected
+    ? cryptoNativeAssets
+    : isStellarWalletConnected
+      ? cryptoNativeAssets.filter((c: any) => coinSupportsStellar(c))
+      : cryptoNativeAssets.filter((c: any) => coinSupportsEvm(c))
+
+  const normalizeNetworkKey = (value: string): string =>
+    value.toLowerCase().replace(/[\s_-]/g, "")
+
+  const getNetworkAliases = (networkName: string): string[] => {
+    const key = normalizeNetworkKey(networkName)
+    if (key.includes("stellar")) return ["stellar"]
+    if (key.includes("celo")) return ["celo"]
+    if (key.includes("bnb") || key.includes("bsc") || key.includes("binance")) {
+      return ["bsc", "bnb", "binancesmartchain"]
+    }
+    if (key.includes("ethereum") || key === "eth") return ["ethereum", "eth"]
+    if (key.includes("polygon") || key.includes("matic")) return ["polygon", "matic"]
+    if (key.includes("arbitrum")) return ["arbitrum"]
+    if (key.includes("optimism") || key === "op") return ["optimism", "op"]
+    if (key.includes("base")) return ["base"]
+    if (key.includes("avalanche") || key.includes("avax")) return ["avalanche", "avax"]
+    return [key]
+  }
+
+  const coinSupportsSpecificNetwork = (coin: any, networkName: string): boolean => {
+    if (!networkName) return true
+    const aliases = getNetworkAliases(networkName)
+    const symbol = String(coin?.symbol || "").toUpperCase()
+    if (aliases.includes("stellar")) {
+      return symbol === "XXLM" || symbol === "XLM" || hasExactStellarNetwork(coin)
+    }
+    const networks = getCoinNetworks(coin)
+    return networks.some((net: any) => {
+      const network = normalizeNetworkKey(String(net?.network || ""))
+      const label = normalizeNetworkKey(String(net?.label || ""))
+      return aliases.some((alias) =>
+        network === alias || label === alias || network.includes(alias) || label.includes(alias)
+      )
+    })
+  }
 
   // Set default receiveCurrency when fiatCurrencies loads (for send mode)
   useEffect(() => {
@@ -181,6 +247,7 @@ export function TransactionForms({  onBack,
   // Set default sendCurrency when crypto loads (for send mode)
   useEffect(() => {
     if (activeTab === "send" && cryptoNativeAssetsForWallet.length > 0 && !cryptoNativeAssetsForWallet.some((c: any) => c.symbol === sendCurrency)) {
+      alert(cryptoNativeAssetsForWallet[1]?.symbol)
       setSendCurrency(cryptoNativeAssetsForWallet[0]?.symbol ?? "")
     }
   }, [activeTab, cryptoNativeAssetsForWallet])
@@ -197,59 +264,129 @@ export function TransactionForms({  onBack,
     }
   }, [activeTab, fiatCurrencies, cryptoNativeAssetsForWallet])
 
-  // Get selected crypto and its networks for buy mode
-  const selectedBuyCrypto = cryptoNativeAssetsForWallet.find((c: any) => c.symbol === sendCurrency)
-  const buyCryptoNetworks = selectedBuyCrypto ? getCoinNetworks(selectedBuyCrypto) : []
-  useEffect(() => {
-    if (activeTab === "buy" && sendCurrency && buyCryptoNetworks.length > 0) {
-      setBuySelectedNetwork((prev) =>
-        buyCryptoNetworks.some((n: any) => n.network === prev) ? prev : buyCryptoNetworks[0]?.network ?? ""
-      )
-    } else if (activeTab === "buy" && (!sendCurrency || buyCryptoNetworks.length === 0)) {
-      setBuySelectedNetwork("")
-    }
-  }, [activeTab, sendCurrency, buyCryptoNetworks])
-
   // Swap form state - use native tokens from context (must be declared before swapFromCrypto/swapToCrypto)
   const [fromCurrency, setFromCurrency] = useState("")
   const [toCurrency, setToCurrency] = useState("")
 
-  // Swap: From = wallet network only, To = all native (swapToCrypto from full list)
-  const swapFromCrypto = cryptoNativeAssetsForWallet.find((c: any) => c.symbol === fromCurrency)
-  const swapToCrypto = cryptoNativeAssets.find((c: any) => c.symbol === toCurrency)
+  const selectedSwapNetwork = walletNetwork || swapFromNetwork || ""
+  const swapAssetsForSelectedNetwork = selectedSwapNetwork
+    ? cryptoNativeAssetsForWallet.filter((c: any) => coinSupportsSpecificNetwork(c, selectedSwapNetwork))
+    : cryptoNativeAssetsForWallet
+  const swapToOptions = swapAssetsForSelectedNetwork.filter((c: any) => c.symbol !== fromCurrency)
+
+  // Swap: both From and To filtered by wallet's connected network
+  const swapFromCrypto = swapAssetsForSelectedNetwork.find((c: any) => c.symbol === fromCurrency)
+  const swapToCrypto = swapAssetsForSelectedNetwork.find((c: any) => c.symbol === toCurrency)
   const swapFromNetworks = swapFromCrypto ? getCoinNetworks(swapFromCrypto) : []
   const swapToNetworks = swapToCrypto ? getCoinNetworks(swapToCrypto) : []
   useEffect(() => {
-    if (activeTab === "swap" && fromCurrency && swapFromNetworks.length > 0) {
+    if (activeTab !== "swap") return
+    if (walletNetwork) {
+      setSwapFromNetwork(walletNetwork)
+      return
+    }
+
+    if (fromCurrency && swapFromNetworks.length > 0) {
       setSwapFromNetwork((prev) =>
         swapFromNetworks.some((n: any) => n.network === prev) ? prev : swapFromNetworks[0]?.network ?? ""
       )
-    } else if (activeTab === "swap" && (!fromCurrency || swapFromNetworks.length === 0)) {
+    } else {
       setSwapFromNetwork("")
     }
-  }, [activeTab, fromCurrency, swapFromNetworks])
+  }, [activeTab, walletNetwork, fromCurrency, swapFromNetworks])
+
   useEffect(() => {
-    if (activeTab === "swap" && toCurrency && swapToNetworks.length > 0) {
+    if (activeTab !== "swap") return
+    if (swapFromNetwork) {
+      setSwapToNetwork(swapFromNetwork)
+    } else if (walletNetwork) {
+      setSwapToNetwork(walletNetwork)
+    } else if (toCurrency && swapToNetworks.length > 0) {
       setSwapToNetwork((prev) =>
         swapToNetworks.some((n: any) => n.network === prev) ? prev : swapToNetworks[0]?.network ?? ""
       )
-    } else if (activeTab === "swap" && (!toCurrency || swapToNetworks.length === 0)) {
+    } else {
       setSwapToNetwork("")
     }
-  }, [activeTab, toCurrency, swapToNetworks])
+  }, [activeTab, swapFromNetwork, walletNetwork, toCurrency, swapToNetworks])
 
-  // Set default swap currencies: From = first wallet asset, To = first other native
   useEffect(() => {
-    if (activeTab === "swap" && cryptoNativeAssetsForWallet.length > 0 && cryptoNativeAssets.length > 0) {
-      if (!fromCurrency || !cryptoNativeAssetsForWallet.some((c: any) => c.symbol === fromCurrency)) {
-        setFromCurrency(cryptoNativeAssetsForWallet[0]?.symbol ?? "")
+    if (activeTab !== "swap") return
+    const lockedNetwork = walletNetwork || swapFromNetwork || ""
+    if (lockedNetwork && swapToNetwork !== lockedNetwork) {
+      setSwapToNetwork(lockedNetwork)
+    }
+  }, [activeTab, walletNetwork, swapFromNetwork, swapToNetwork])
+
+  // Set default swap currencies: both filtered by wallet network
+  useEffect(() => {
+    if (activeTab === "swap" && swapAssetsForSelectedNetwork.length > 0) {
+      if (!fromCurrency || !swapAssetsForSelectedNetwork.some((c: any) => c.symbol === fromCurrency)) {
+        setFromCurrency(swapAssetsForSelectedNetwork[0]?.symbol ?? "")
       }
-      const toOptions = cryptoNativeAssets.filter((c: any) => c.symbol !== fromCurrency)
-      if (!toCurrency || !cryptoNativeAssets.some((c: any) => c.symbol === toCurrency) || toCurrency === fromCurrency) {
-        setToCurrency(toOptions[0]?.symbol ?? cryptoNativeAssets[0]?.symbol ?? "")
+      const toOptions = swapAssetsForSelectedNetwork.filter((c: any) => c.symbol !== fromCurrency)
+      if (!toCurrency || !swapAssetsForSelectedNetwork.some((c: any) => c.symbol === toCurrency) || toCurrency === fromCurrency) {
+        setToCurrency(toOptions[0]?.symbol ?? "")
       }
     }
-  }, [activeTab, cryptoNativeAssetsForWallet, cryptoNativeAssets, fromCurrency, toCurrency])
+  }, [activeTab, swapAssetsForSelectedNetwork, fromCurrency, toCurrency])
+
+  // Apply initial swap params from URL (rhino.fi style: chainIn, chainOut, token, tokenOut)
+  const networkMatches = (net: any, chainParam: string) => {
+    if (!chainParam) return false
+    const n = (net.network || net.label || "").toLowerCase()
+    const l = (net.label || net.network || "").toLowerCase()
+    const p = chainParam.toLowerCase()
+    return n.includes(p) || l.includes(p) || p.includes(n) || p.includes(l)
+  }
+  useEffect(() => {
+    if (activeTab !== "swap" || !initialSwapParams || cryptoNativeAssetsForWallet.length === 0 || appliedInitialSwapParams.current) return
+    const { chainIn, chainOut, token, tokenOut } = initialSwapParams
+
+    // Use all crypto native assets for URL param matching (not filtered by wallet) so we can pre-select even when wallet not connected
+    const allCrypto = allCurrencies.filter(
+      (c: any) =>
+        (c.token_type === "Native" || c.token_type === "native") &&
+        (c.coin_status === "active" || c.status === "active" || c.status === true)
+    )
+
+    if (token) {
+      const fromAsset = allCrypto.find((c: any) => (c.symbol || "").toUpperCase() === token)
+      if (fromAsset && cryptoNativeAssetsForWallet.some((c: any) => c.symbol === fromAsset.symbol)) {
+        setFromCurrency(fromAsset.symbol)
+      }
+    }
+    if (tokenOut) {
+      const toAsset = allCrypto.find((c: any) => (c.symbol || "").toUpperCase() === tokenOut)
+      const fromSym = (token || fromCurrency || "").toUpperCase()
+      if (toAsset && toAsset.symbol.toUpperCase() !== fromSym && cryptoNativeAssetsForWallet.some((c: any) => c.symbol === toAsset.symbol)) {
+        setToCurrency(toAsset.symbol)
+      }
+    }
+    appliedInitialSwapParams.current = true
+  }, [activeTab, initialSwapParams, cryptoNativeAssetsForWallet.length, allCurrencies])
+
+  // Apply chainIn/chainOut after from/to currencies are set (networks come from selected coin)
+  useEffect(() => {
+    if (activeTab !== "swap" || !initialSwapParams || appliedInitialChainParams.current) return
+    const { chainIn, chainOut } = initialSwapParams
+    let applied = false
+    if (chainIn && fromCurrency && swapFromNetworks.length > 0) {
+      const match = swapFromNetworks.find((n: any) => networkMatches(n, chainIn))
+      if (match) {
+        setSwapFromNetwork(match.network)
+        applied = true
+      }
+    }
+    if (chainOut && toCurrency && swapToNetworks.length > 0) {
+      const match = swapToNetworks.find((n: any) => networkMatches(n, chainOut))
+      if (match) {
+        setSwapToNetwork(match.network)
+        applied = true
+      }
+    }
+    if (applied) appliedInitialChainParams.current = true
+  }, [activeTab, initialSwapParams, fromCurrency, toCurrency, swapFromNetworks, swapToNetworks])
   const [fromAmount, setFromAmount] = useState("")
   const [toAmount, setToAmount] = useState("")
 
@@ -486,7 +623,7 @@ export function TransactionForms({  onBack,
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
                       <span className="text-gray-600">Fees</span>
-                      <span className="font-medium">--</span>
+                      <span className="font-medium">{formatFee(sendAmount, sendCurrency)}</span>
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
                       <span className="text-gray-600">Transfer Time</span>
@@ -511,10 +648,10 @@ export function TransactionForms({  onBack,
                       <span className="text-gray-600">Receive</span>
                       <span className="font-medium">0 {sendCurrency}</span>
                     </div>
-                    {buySelectedNetwork && (
+                    {walletNetwork && (
                       <div className="flex justify-between items-center py-3 border-b border-gray-100">
                         <span className="text-gray-600">Network</span>
-                        <span className="font-medium">{buySelectedNetwork}</span>
+                        <span className="font-medium">{walletNetwork}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
@@ -523,7 +660,7 @@ export function TransactionForms({  onBack,
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
                       <span className="text-gray-600">Fees</span>
-                      <span className="font-medium">--</span>
+                      <span className="font-medium">{formatFee(sendAmount, receiveCurrency)}</span>
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
                       <span className="text-gray-600">Time</span>
@@ -539,17 +676,17 @@ export function TransactionForms({  onBack,
                 {activeTab === "swap" && (
                   <>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                      <span className="text-gray-600">From</span>
+                      <span className="text-gray-600">You send</span>
                       <span className="font-medium">{fromAmount || 0} {fromCurrency}</span>
                     </div>
                     {swapFromNetwork && (
                       <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                        <span className="text-gray-600">From Network</span>
+                        <span className="text-gray-600">Network</span>
                         <span className="font-medium">{swapFromNetwork}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                      <span className="text-gray-600">To</span>
+                      <span className="text-gray-600">Tox</span>
                       <span className="font-medium">0 {toCurrency}</span>
                     </div>
                     {swapToNetwork && (
@@ -603,7 +740,7 @@ export function TransactionForms({  onBack,
                               <img 
                                 src={iconUrl} 
                                 alt={sendCurrency} 
-                                className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                                className="absolute inset-0 w-full h-full object-contain rounded-full"
                                 onError={(e) => { e.currentTarget.style.display = "none" }}
                               />
                             ) : null
@@ -617,8 +754,8 @@ export function TransactionForms({  onBack,
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white max-h-[300px]">
-                              {cryptoNativeAssetsForWallet && cryptoNativeAssetsForWallet.length > 0 ? (
-                                cryptoNativeAssetsForWallet.map((asset) => {
+                              {swapAssetsForSelectedNetwork && swapAssetsForSelectedNetwork.length > 0 ? (
+                                swapAssetsForSelectedNetwork.map((asset) => {
                                   const iconUrl = getCurrencyIconUrl(asset)
                                   return (
                                     <SelectItem 
@@ -641,12 +778,14 @@ export function TransactionForms({  onBack,
                                 })
                               ) : (
                                 <div className="p-4 text-center text-sm text-gray-500">
-                                  {walletNetwork ? `No Native tokens for ${walletNetwork}. Connect a wallet on a supported network.` : "Connect wallet to see assets"}
+                                  {isStellarWalletConnected
+                                    ? "No Stellar-supported native tokens available."
+                                    : "No EVM-supported native tokens available."}
                                 </div>
                               )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Native Token</div>
+                          <div className="text-sm text-gray-500">{isStellarWalletConnected ? "Stellar" : "EVM"}</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -706,7 +845,7 @@ export function TransactionForms({  onBack,
                               <img 
                                 src={iconUrl} 
                                 alt={receiveCurrency} 
-                                className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                                className="absolute inset-0 w-full h-full object-contain rounded-full"
                                 onError={(e) => { e.currentTarget.style.display = "none" }}
                               />
                             ) : null
@@ -722,7 +861,7 @@ export function TransactionForms({  onBack,
                             <SelectContent className="bg-white max-h-[300px]">
                               {fiatCurrencies && fiatCurrencies.length > 0 ? (
                                 fiatCurrencies.map((currency) => {
-                                  const iconUrl = getCurrencyIconUrl(currency)
+                                  const iconUrl = getCurrencyIconUrl({ symbol: currency.symbol })
                                   return (
                                     <SelectItem 
                                       key={currency.symbol} 
@@ -1010,12 +1149,7 @@ export function TransactionForms({  onBack,
 
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-600">Fees</span>
-                      <span className="text-sm font-medium">--</span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Transfer Time</span>
-                      <span className="text-sm font-medium">--</span>
+                      <span className="text-sm font-medium">{formatFee(sendAmount, sendCurrency)}</span>
                     </div>
 
                     <div className="border-t border-gray-200 pt-3">
@@ -1052,7 +1186,7 @@ export function TransactionForms({  onBack,
                               <img 
                                 src={iconUrl} 
                                 alt={receiveCurrency} 
-                                className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                                className="absolute inset-0 w-full h-full object-contain rounded-full"
                                 onError={(e) => { e.currentTarget.style.display = "none" }}
                               />
                             ) : null
@@ -1131,7 +1265,7 @@ export function TransactionForms({  onBack,
                             <img 
                               src={getCurrencyIconUrl({ symbol: sendCurrency })!} 
                               alt={sendCurrency} 
-                              className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                              className="absolute inset-0 w-full h-full object-contain rounded-full"
                               onError={(e) => { e.currentTarget.style.display = "none" }}
                             />
                           )}
@@ -1144,8 +1278,8 @@ export function TransactionForms({  onBack,
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white max-h-[300px]">
-                              {cryptoNativeAssetsForWallet && cryptoNativeAssetsForWallet.length > 0 ? (
-                                cryptoNativeAssetsForWallet.map((asset) => {
+                              {swapAssetsForSelectedNetwork && swapAssetsForSelectedNetwork.length > 0 ? (
+                                swapAssetsForSelectedNetwork.map((asset) => {
                                   const iconUrl = getCurrencyIconUrl(asset)
                                   return (
                                     <SelectItem 
@@ -1173,7 +1307,7 @@ export function TransactionForms({  onBack,
                               )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Crypto Asset</div>
+                          <div className="text-sm text-gray-500">Asset</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -1182,28 +1316,6 @@ export function TransactionForms({  onBack,
                         </div>
                       </div>
                     </div>
-                    {/* Network selector for selected crypto */}
-                    {sendCurrency && buyCryptoNetworks.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-100">
-                        <Label className="text-sm text-gray-500 mb-2 block">Network</Label>
-                        <Select value={buySelectedNetwork} onValueChange={setBuySelectedNetwork}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select network" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-white max-h-[300px]">
-                            {buyCryptoNetworks.map((net: any) => (
-                              <SelectItem 
-                                key={net.connection_id || net.network} 
-                                value={net.network} 
-                                className="bg-white hover:bg-gray-50"
-                              >
-                                {net.label || net.network}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
                   </div>
 
                   {/* Payment Mode - Phone Number */}
@@ -1358,12 +1470,7 @@ export function TransactionForms({  onBack,
 
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-600">Fees</span>
-                      <span className="text-sm font-medium">--</span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Processing Time</span>
-                      <span className="text-sm font-medium">--</span>
+                      <span className="text-sm font-medium">{formatFee(sendAmount, receiveCurrency)}</span>
                     </div>
 
                     <div className="flex justify-between items-center">
@@ -1392,9 +1499,8 @@ export function TransactionForms({  onBack,
               {/* Swap Tab Content */}
               {activeTab === "swap" && (
                 <div className="space-y-6">
-                  {/* From Section - Native tokens on wallet's connected network only, icons from public/flag */}
+                  {/* Wallet section - Native tokens on wallet's connected network only */}
                   <div className="bg-white rounded-xl p-4 border border-gray-200">
-                    <div className="text-sm text-gray-500 mb-3">From</div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-gray-100 shrink-0">
@@ -1403,7 +1509,7 @@ export function TransactionForms({  onBack,
                             <img 
                               src={getCurrencyIconUrl({ symbol: fromCurrency })!} 
                               alt={fromCurrency} 
-                              className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                              className="absolute inset-0 w-full h-full object-contain rounded-full"
                               onError={(e) => { e.currentTarget.style.display = "none" }}
                             />
                           )}
@@ -1445,7 +1551,6 @@ export function TransactionForms({  onBack,
                               )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Native (on {walletNetwork || "network"})</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -1468,28 +1573,6 @@ export function TransactionForms({  onBack,
                         </div>
                       </div>
                     </div>
-                    {/* Network selector for From */}
-                    {fromCurrency && swapFromNetworks.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-100">
-                        <Label className="text-sm text-gray-500 mb-2 block">Network</Label>
-                        <Select value={swapFromNetwork} onValueChange={setSwapFromNetwork}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select network" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-white max-h-[300px]">
-                            {swapFromNetworks.map((net: any) => (
-                              <SelectItem 
-                                key={net.connection_id || net.network} 
-                                value={net.network} 
-                                className="bg-white hover:bg-gray-50"
-                              >
-                                {net.label || net.network}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
                   </div>
 
                   {/* Swap Button Section */}
@@ -1523,7 +1606,7 @@ export function TransactionForms({  onBack,
                             <img 
                               src={getCurrencyIconUrl({ symbol: toCurrency })!} 
                               alt={toCurrency} 
-                              className="absolute inset-0 w-full h-full object-contain p-1.5 rounded-full"
+                              className="absolute inset-0 w-full h-full object-contain rounded-full"
                               onError={(e) => { e.currentTarget.style.display = "none" }}
                             />
                           )}
@@ -1536,10 +1619,9 @@ export function TransactionForms({  onBack,
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white max-h-[300px]">
-                              {cryptoNativeAssets && cryptoNativeAssets.length > 0 ? (
-                                cryptoNativeAssets
-                                  .filter((asset: any) => asset.symbol !== fromCurrency)
-                                  .map((asset) => {
+                              {swapAssetsForSelectedNetwork && swapAssetsForSelectedNetwork.length > 0 ? (
+                                swapToOptions.length > 0 ? (
+                                  swapToOptions.map((asset) => {
                                     const iconUrl = getCurrencyIconUrl(asset)
                                     return (
                                       <SelectItem 
@@ -1560,14 +1642,26 @@ export function TransactionForms({  onBack,
                                       </SelectItem>
                                     )
                                   })
+                                ) : (
+                                  <div className="p-4 text-center text-sm text-gray-500">
+                                    No token to swap to on this network.
+                                  </div>
+                                )
                               ) : (
                                 <div className="p-4 text-center text-sm text-gray-500">
-                                  No assets available
+                                  {walletNetwork ? `No native tokens for ${walletNetwork}. Connect wallet on supported network.` : "Connect wallet to see assets"}
                                 </div>
                               )}
                             </SelectContent>
                           </Select>
-                          <div className="text-sm text-gray-500">Native Token</div>
+                          {swapAssetsForSelectedNetwork.length > 0 && swapToOptions.length === 0 && (
+                            <div className="text-xs text-amber-600 mt-1">No token to swap to on this network.</div>
+                          )}
+                          <div className="text-sm text-gray-500">
+                            {swapToNetwork
+                              ? (swapToNetworks.find((n: any) => n.network === swapToNetwork)?.label || swapToNetwork)
+                              : ""}
+                          </div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -1576,28 +1670,6 @@ export function TransactionForms({  onBack,
                         </div>
                       </div>
                     </div>
-                    {/* Network selector for To - switch target network */}
-                    {toCurrency && swapToNetworks.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-100">
-                        <Label className="text-sm text-gray-500 mb-2 block">Receive on network</Label>
-                        <Select value={swapToNetwork} onValueChange={setSwapToNetwork}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select network" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-white max-h-[300px]">
-                            {swapToNetworks.map((net: any) => (
-                              <SelectItem 
-                                key={net.connection_id || net.network} 
-                                value={net.network} 
-                                className="bg-white hover:bg-gray-50"
-                              >
-                                {net.label || net.network}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
                   </div>
 
                   {/* Transaction Details */}
@@ -1621,12 +1693,7 @@ export function TransactionForms({  onBack,
 
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-600">Fees</span>
-                      <span className="text-sm font-medium">--</span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Processing Time</span>
-                      <span className="text-sm font-medium">--</span>
+                      <span className="text-sm font-medium">{formatFee(fromAmount, fromCurrency)}</span>
                     </div>
 
                     <div className="flex justify-between items-center">

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useSearchParams } from "next/navigation"
 import { 
   ConnectWallet,
   useAddress,
@@ -72,6 +73,12 @@ import {
   XIcon,
 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import {
+  parseSwapUrlParams,
+  isSwapModeFromUrl,
+  normalizeChainParam,
+  normalizeTokenParam,
+} from "@/lib/swap-url-params"
 
 interface Transaction {
   id: string
@@ -81,6 +88,26 @@ interface Transaction {
   fiatAmount: number
   date: string
   status: "completed" | "pending" | "failed"
+}
+
+interface WalletActivityItem {
+  id: string
+  hash: string
+  type: "send" | "receive"
+  amount: number
+  asset: string
+  timestamp: string
+  status: "completed" | "pending" | "failed"
+  network: string
+  counterparty?: string
+}
+
+interface ActivityFetchResult {
+  items: WalletActivityItem[]
+  hasMore: boolean
+  nextCursor?: string | null
+  nextBlock?: number | null
+  mode: "stellar" | "evm-explorer" | "evm-rpc"
 }
 
 const mockTransactions: Transaction[] = [
@@ -97,9 +124,33 @@ const mockTransactions: Transaction[] = [
 
 
 export function ThirdwebWalletInterface() {
+  const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState("overview")
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false)
   
+  // Parse swap URL params (rhino.fi style: ?mode=pay&chainIn=ETHEREUM&chainOut=ARBITRUM&token=USDT&tokenOut=USDC)
+  const urlSwapParams = (() => {
+    const params = parseSwapUrlParams(searchParams)
+    if (!isSwapModeFromUrl(params) && !params.token && !params.chainIn) return null
+    return {
+      chainIn: params.chainIn ? normalizeChainParam(params.chainIn) : undefined,
+      chainOut: params.chainOut ? normalizeChainParam(params.chainOut) : undefined,
+      token: params.token ? normalizeTokenParam(params.token) : undefined,
+      tokenOut: params.tokenOut ? normalizeTokenParam(params.tokenOut) : undefined,
+    }
+  })()
+
+  // Auto-open swap form when URL has swap/bridge params (rhino.fi style)
+  const hasUrlSwapParams = Boolean(
+    urlSwapParams?.chainIn || urlSwapParams?.chainOut || urlSwapParams?.token || urlSwapParams?.tokenOut
+  )
+  useEffect(() => {
+    if (hasUrlSwapParams) {
+      setTransactionType("swap")
+      setShowTransactionForms(true)
+    }
+  }, [hasUrlSwapParams])
+
   // Use standalone currency hook
   const { 
     selectedCurrency, 
@@ -137,22 +188,30 @@ export function ThirdwebWalletInterface() {
   const [stellarKit, setStellarKit] = useState<StellarWalletsKit | null>(null)
   const stellarKitRef = useRef<HTMLDivElement>(null)
   const currencyDropdownRef = useRef<HTMLDivElement>(null)
+  const initialCurrenciesFetchedRef = useRef(false)
+  const transactionsLoadMoreRef = useRef<HTMLDivElement>(null)
 
   // Wallet asset management
   const [walletAssets, setWalletAssets] = useState<any[]>([])
   const [enabledAssets, setEnabledAssets] = useState<EnabledAsset[]>([])
   const [assetLoading, setAssetLoading] = useState(false)
+  const [walletActivity, setWalletActivity] = useState<WalletActivityItem[]>([])
+  const [walletActivityLoading, setWalletActivityLoading] = useState(false)
+  const [walletActivityLoadingMore, setWalletActivityLoadingMore] = useState(false)
+  const [walletActivityError, setWalletActivityError] = useState<string | null>(null)
+  const [walletActivityHasMore, setWalletActivityHasMore] = useState(false)
+  const [walletActivityMode, setWalletActivityMode] = useState<"stellar" | "evm-explorer" | "evm-rpc" | null>(null)
+  const [stellarActivityCursor, setStellarActivityCursor] = useState<string | null>(null)
+  const [evmActivityPage, setEvmActivityPage] = useState(1)
+  const [evmRpcNextBlock, setEvmRpcNextBlock] = useState<number | null>(null)
 
 
 
-  useEffect(() =>{
-    const initalizeCurrencies = async () => {
-
-      await refetchCurrencies()
-      setWalletAssets(currencies.filter(currency => currency.isActive))
-    }
-    initalizeCurrencies()
-  }, [])
+  useEffect(() => {
+    if (initialCurrenciesFetchedRef.current) return
+    initialCurrenciesFetchedRef.current = true
+    refetchCurrencies()
+  }, [refetchCurrencies])
 
   // Convert API currencies to enabled assets when currencies are loaded
   useEffect(() => {
@@ -758,6 +817,24 @@ export function ThirdwebWalletInterface() {
     return networks[chainId] || "Ethereum"
   }
 
+  // Native token symbol per chain (for balance resolution)
+  const getNativeSymbolForChain = (chainId?: number) => {
+    if (!chainId) return "ETH"
+    const symbols: { [key: number]: string } = {
+      1: "ETH",
+      137: "MATIC",
+      42161: "ETH",
+      10: "ETH",
+      8453: "ETH",
+      56: "BNB",
+      81457: "ETH",
+      43114: "AVAX",
+      42220: "CELO",
+      324: "ETH",
+    }
+    return symbols[chainId] ?? "ETH"
+  }
+
   // Function to fetch supported tokens for the connected wallet
   const fetchSupportedTokens = async () => {
     if (!address || !chain) return
@@ -777,7 +854,19 @@ export function ThirdwebWalletInterface() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
   }
 
-  
+  // Currency icon from public/flag (e.g. USD.png, usdc.png, ugx.png)
+  const getCurrencyFlagIcon = (symbol: string) => {
+    if (!symbol) return null
+    const filename = symbol.toUpperCase() === "USD" ? "USD" : symbol.toLowerCase()
+    return `/flag/${filename}.png`
+  }
+
+  const getAssetIconFallback = (asset: any): string | null => {
+    if (!asset?.icon || typeof asset.icon !== "string") return null
+    if (asset.icon.startsWith("http") || asset.icon.startsWith("/")) return asset.icon
+    return null
+  }
+
   const exchangeAmount = (amount: string, symbol: string, currency: string) => {
      try{
       const theRateGor = generalExchangeRates.filter(rate => rate.price.base_coin === symbol && rate.price.quote_coin === currency)
@@ -793,45 +882,72 @@ export function ThirdwebWalletInterface() {
         
   }
 
-  // Calculate total balance from all tokens
-  useEffect(() => {
-    let total = 0
-    
-    // Calculate from EVM supported tokens (if connected)
-    if (supportedTokens.length > 0 && generalExchangeRates.length > 0) {
-      supportedTokens.forEach((token) => {
-        const theRateGor = generalExchangeRates.filter(
-          rate => rate.price?.base_coin === token.symbol && rate.price?.quote_coin === selectedCurrency
-        )
-        if (theRateGor.length > 0 && token.balanceFormatted) {
-          const amount = Number(theRateGor[0].price.marketcap_amount) * Number(token.balanceFormatted)
-          console.log(`Token ${token.symbol}: ${token.balanceFormatted} * ${theRateGor[0].price.marketcap_amount} = ${amount}`)
-          total += amount
-        }
-      })
-      
-      // stellar selected populate erc20 tokens
-      setSupportedSendTokens(supportedTokens);
-    }
-    
-    // Calculate from Stellar tokens (if connected)
-    if (walletType === 'stellar' && stellarBalance && generalExchangeRates.length > 0) {
-      const xlmRate = generalExchangeRates.filter(
-        rate => rate.price?.base_coin === 'XLM' && rate.price?.quote_coin === selectedCurrency
-      )
-      if (xlmRate.length > 0) {
-        const xlmAmount = Number(xlmRate[0].price.marketcap_amount) * stellarBalance
-        total += xlmAmount
-      }
+  const formatFiatExchangeRate = (value: number): string => {
+    if (!Number.isFinite(value)) return "0.00"
+    const decimals = Math.abs(value) >= 1 ? 2 : 4
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })
+  }
 
-      // stellar selected populate xlm and usdc
-      setSupportedSendTokens(supportedTokens.filter((token: any) => token.symbol === 'XLM' || token.symbol === 'USDC'));
+  // Calculate total balance in selected fiat currency as the sum of all supported assets
+  useEffect(() => {
+    let totalValue = 0
+    const quoteCurrency = selectedCurrency || "USD"
+
+    const getQuoteRate = (symbol: string) => {
+      const r = generalExchangeRates.find(
+        (rate: any) => rate.price?.base_coin === symbol && rate.price?.quote_coin === quoteCurrency
+      )
+      return r ? Number(r.price?.marketcap_amount) : 0
     }
-    
-    setSupportedSendFiat(currencies.filter((currency: any) => currency.token_type?.toLowerCase() === "fiat" && (currency.coin_status === "active" || currency.status === "active")));
-    setTotalBalanceValue(total)
-  
-  }, [supportedTokens, generalExchangeRates, selectedCurrency, walletType, stellarBalance])
+
+    if (walletType === "stellar") {
+      totalValue += stellarBalance * getQuoteRate("XLM")
+      totalValue += usdcStellarBalance * getQuoteRate("USDC")
+      setSupportedSendTokens(supportedTokens.filter((t: any) => t.symbol === "XLM" || t.symbol === "USDC"))
+    } else if (generalExchangeRates.length > 0) {
+      const nativeSymbol = getNativeSymbolForChain(chain ? (chain.chainId as number) : undefined)
+      const activeSupportedAssets = (supportedTokens || [])
+        .filter((asset: any) => {
+          const type = String(asset?.token_type || "").toLowerCase()
+          const active = asset?.coin_status === "active" || asset?.status === "active" || asset?.status === true || asset?.isActive === true
+          return active && type !== "fiat"
+        })
+        .reduce((acc: any[], asset: any) => {
+          const symbol = String(asset?.symbol || "").toUpperCase()
+          if (!symbol) return acc
+          if (acc.some((a) => String(a?.symbol || "").toUpperCase() === symbol)) return acc
+          acc.push(asset)
+          return acc
+        }, [])
+
+      activeSupportedAssets.forEach((asset: any) => {
+        const assetSymbol = String(asset?.symbol || "")
+        const isNative = assetSymbol.toUpperCase() === nativeSymbol?.toUpperCase()
+        const balance = isNative && nativeBalance?.displayValue != null
+          ? Number(nativeBalance.displayValue)
+          : Number(asset?.balanceFormatted ?? asset?.balance ?? 0)
+        const quoteRate = getQuoteRate(assetSymbol)
+        if (quoteRate > 0 && balance > 0) totalValue += balance * quoteRate
+      })
+      setSupportedSendTokens(supportedTokens)
+    }
+
+    setSupportedSendFiat(currencies.filter((c: any) => c.token_type?.toLowerCase() === "fiat" && (c.coin_status === "active" || c.status === "active")))
+    setTotalBalanceValue(totalValue)
+  }, [
+    supportedTokens,
+    generalExchangeRates,
+    selectedCurrency,
+    walletType,
+    stellarBalance,
+    usdcStellarBalance,
+    chain,
+    nativeBalance?.displayValue,
+    currencies,
+  ])
 
 
 
@@ -884,6 +1000,280 @@ export function ThirdwebWalletInterface() {
     }
   }
 
+  const formatHash = (hash: string) => {
+    if (!hash) return "-"
+    return `${hash.slice(0, 8)}...${hash.slice(-6)}`
+  }
+
+  const resolveRpcUrl = (rawUrl?: string) => {
+    if (!rawUrl) return null
+    const clientId = process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID || ""
+    return rawUrl.replace(/\$\{THIRDWEB_API_KEY\}|\{THIRDWEB_API_KEY\}/g, clientId)
+  }
+
+  const fetchStellarActivity = async (walletAddress: string, cursor?: string | null): Promise<ActivityFetchResult> => {
+    const params = new URLSearchParams({ order: "desc", limit: "25" })
+    if (cursor) params.set("cursor", cursor)
+    const response = await fetch(`https://horizon.stellar.org/accounts/${walletAddress}/payments?${params.toString()}`)
+    if (!response.ok) throw new Error("Failed to fetch Stellar activity")
+    const data = await response.json()
+    const records = data?._embedded?.records || []
+    const lowerAddress = walletAddress.toLowerCase()
+
+    const items = records
+      .map((record: any) => {
+        const from = String(record?.from || "").toLowerCase()
+        const to = String(record?.to || "").toLowerCase()
+        const amount = Number(record?.amount || 0)
+        if (!Number.isFinite(amount) || amount <= 0) return null
+
+        const isSend = from === lowerAddress
+        const asset = record?.asset_type === "native" ? "XLM" : (record?.asset_code || "ASSET")
+
+        return {
+          id: String(record?.id || record?.paging_token || record?.transaction_hash || crypto.randomUUID()),
+          hash: String(record?.transaction_hash || ""),
+          type: isSend ? "send" : "receive",
+          amount,
+          asset,
+          timestamp: String(record?.created_at || new Date().toISOString()),
+          status: "completed",
+          network: "Stellar",
+          counterparty: isSend ? to : from,
+        } as WalletActivityItem
+      })
+      .filter((item: WalletActivityItem | null): item is WalletActivityItem => Boolean(item))
+
+    const nextCursor = records.length > 0 ? String(records[records.length - 1]?.paging_token || "") : null
+    return {
+      items,
+      hasMore: records.length >= 25,
+      nextCursor,
+      mode: "stellar",
+    }
+  }
+
+  const fetchEvmActivity = async (
+    walletAddress: string,
+    page: number,
+    rpcFromBlock?: number | null,
+  ): Promise<ActivityFetchResult> => {
+    const networkName = getNetworkName(chain ? (chain.chainId as number) : undefined)
+    const lowerAddress = walletAddress.toLowerCase()
+
+    const explorerApiUrl =
+      (chain as any)?.blockExplorers?.default?.apiUrl ||
+      (chain as any)?.explorers?.[0]?.apiUrl ||
+      null
+
+    if (explorerApiUrl) {
+      try {
+        const explorerResponse = await fetch(
+          `${explorerApiUrl}?module=account&action=txlist&address=${walletAddress}&sort=desc&page=${page}&offset=25`
+        )
+        if (explorerResponse.ok) {
+          const explorerData = await explorerResponse.json()
+          const results = Array.isArray(explorerData?.result) ? explorerData.result : []
+          if (results.length > 0) {
+            return {
+              items: results.map((tx: any) => {
+              const from = String(tx?.from || "").toLowerCase()
+              const to = String(tx?.to || "").toLowerCase()
+              const wei = Number(tx?.value || 0)
+              const amount = wei > 0 ? wei / 1e18 : 0
+              const txStatus = tx?.txreceipt_status === "0" || tx?.isError === "1" ? "failed" : "completed"
+              return {
+                id: String(tx?.hash || `${tx?.blockNumber}-${tx?.nonce}`),
+                hash: String(tx?.hash || ""),
+                type: from === lowerAddress ? "send" : "receive",
+                amount,
+                asset: getNativeSymbolForChain(chain ? (chain.chainId as number) : undefined),
+                timestamp: tx?.timeStamp
+                  ? new Date(Number(tx.timeStamp) * 1000).toISOString()
+                  : new Date().toISOString(),
+                status: txStatus,
+                network: networkName,
+                counterparty: from === lowerAddress ? to : from,
+              } as WalletActivityItem
+              }),
+              hasMore: results.length >= 25,
+              mode: "evm-explorer",
+            }
+          }
+        }
+      } catch {
+      }
+    }
+
+    const rawRpcUrl = (chain as any)?.rpc?.[0]
+    const rpcUrl = resolveRpcUrl(rawRpcUrl)
+    if (!rpcUrl) return []
+
+    const rpcCall = async (method: string, params: any[]) => {
+      const rpcResponse = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      })
+      const rpcData = await rpcResponse.json()
+      return rpcData?.result
+    }
+
+    const latestHex = await rpcCall("eth_blockNumber", [])
+    if (!latestHex) return { items: [], hasMore: false, nextBlock: null, mode: "evm-rpc" }
+    const latest = Number.parseInt(latestHex, 16)
+    if (!Number.isFinite(latest)) return { items: [], hasMore: false, nextBlock: null, mode: "evm-rpc" }
+
+    const startBlock = rpcFromBlock == null ? latest : rpcFromBlock
+    const blockNumbers = Array.from({ length: 40 }, (_, idx) => startBlock - idx).filter((n) => n >= 0)
+    const blocks = await Promise.all(
+      blockNumbers.map((bn) => rpcCall("eth_getBlockByNumber", [`0x${bn.toString(16)}`, true]))
+    )
+
+    const items: WalletActivityItem[] = []
+    blocks.forEach((block: any) => {
+      const ts = block?.timestamp ? new Date(Number.parseInt(block.timestamp, 16) * 1000).toISOString() : new Date().toISOString()
+      const txs = Array.isArray(block?.transactions) ? block.transactions : []
+      txs.forEach((tx: any) => {
+        const from = String(tx?.from || "").toLowerCase()
+        const to = String(tx?.to || "").toLowerCase()
+        if (from !== lowerAddress && to !== lowerAddress) return
+        const valueHex = String(tx?.value || "0x0")
+        const amount = Number.parseInt(valueHex, 16) / 1e18
+        items.push({
+          id: String(tx?.hash || `${block?.number}-${tx?.nonce}`),
+          hash: String(tx?.hash || ""),
+          type: from === lowerAddress ? "send" : "receive",
+          amount: Number.isFinite(amount) ? amount : 0,
+          asset: getNativeSymbolForChain(chain ? (chain.chainId as number) : undefined),
+          timestamp: ts,
+          status: "completed",
+          network: networkName,
+          counterparty: from === lowerAddress ? to : from,
+        })
+      })
+    })
+
+    const sorted = items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    const minScannedBlock = blockNumbers.length > 0 ? Math.min(...blockNumbers) : -1
+    const nextBlock = minScannedBlock > 0 ? minScannedBlock - 1 : null
+    return {
+      items: sorted,
+      hasMore: nextBlock != null,
+      nextBlock,
+      mode: "evm-rpc",
+    }
+  }
+
+  const loadInitialWalletActivity = async () => {
+    const hasStellar = walletType === "stellar" && Boolean(stellarAddress)
+    const hasEvm = Boolean(isConnected && address)
+
+    if (!hasStellar && !hasEvm) {
+      setWalletActivity([])
+      setWalletActivityError(null)
+      setWalletActivityHasMore(false)
+      setWalletActivityMode(null)
+      return
+    }
+
+    setWalletActivityLoading(true)
+    setWalletActivityError(null)
+    setWalletActivityHasMore(false)
+    setStellarActivityCursor(null)
+    setEvmActivityPage(1)
+    setEvmRpcNextBlock(null)
+
+    try {
+      if (hasStellar && stellarAddress) {
+        const result = await fetchStellarActivity(stellarAddress, null)
+        setWalletActivity(result.items)
+        setWalletActivityHasMore(result.hasMore)
+        setStellarActivityCursor(result.nextCursor || null)
+        setWalletActivityMode(result.mode)
+      } else if (hasEvm && address) {
+        const result = await fetchEvmActivity(address, 1, null)
+        setWalletActivity(result.items)
+        setWalletActivityHasMore(result.hasMore)
+        setWalletActivityMode(result.mode)
+        setEvmActivityPage(2)
+        setEvmRpcNextBlock(result.nextBlock ?? null)
+      }
+    } catch (error: any) {
+      setWalletActivity([])
+      setWalletActivityError(error?.message || "Failed to load wallet activity")
+      setWalletActivityHasMore(false)
+    } finally {
+      setWalletActivityLoading(false)
+    }
+  }
+
+  const loadMoreWalletActivity = async () => {
+    if (walletActivityLoadingMore || !walletActivityHasMore) return
+    setWalletActivityLoadingMore(true)
+    setWalletActivityError(null)
+    try {
+      if (walletActivityMode === "stellar" && stellarAddress) {
+        const result = await fetchStellarActivity(stellarAddress, stellarActivityCursor)
+        setWalletActivity((prev) => [...prev, ...result.items])
+        setWalletActivityHasMore(result.hasMore)
+        setStellarActivityCursor(result.nextCursor || null)
+      } else if ((walletActivityMode === "evm-explorer" || walletActivityMode === "evm-rpc") && address) {
+        const result = await fetchEvmActivity(address, evmActivityPage, evmRpcNextBlock)
+        setWalletActivity((prev) => [...prev, ...result.items])
+        setWalletActivityHasMore(result.hasMore)
+        setWalletActivityMode(result.mode)
+        if (result.mode === "evm-explorer") {
+          setEvmActivityPage((prev) => prev + 1)
+        } else {
+          setEvmRpcNextBlock(result.nextBlock ?? null)
+        }
+      }
+    } catch (error: any) {
+      setWalletActivityError(error?.message || "Failed to load more activity")
+    } finally {
+      setWalletActivityLoadingMore(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab !== "transactions") return
+    if (!walletActivityHasMore) return
+    const sentinel = transactionsLoadMoreRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (entry?.isIntersecting && !walletActivityLoading && !walletActivityLoadingMore) {
+          loadMoreWalletActivity()
+        }
+      },
+      { root: null, rootMargin: "220px", threshold: 0.1 }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [activeTab, walletActivityHasMore, walletActivityLoading, walletActivityLoadingMore, walletActivity.length])
+
+  useEffect(() => {
+    if (activeTab === "overview" || activeTab === "transactions" || activeTab === "activity") {
+      loadInitialWalletActivity()
+    }
+  }, [activeTab, walletType, stellarAddress, isConnected, address, chain?.chainId])
+
+  const totalSentActivity = walletActivity
+    .filter((item) => item.type === "send")
+    .reduce((sum, item) => sum + item.amount, 0)
+
+  const totalReceivedActivity = walletActivity
+    .filter((item) => item.type === "receive")
+    .reduce((sum, item) => sum + item.amount, 0)
+
+  const averageActivity = walletActivity.length > 0
+    ? walletActivity.reduce((sum, item) => sum + item.amount, 0) / walletActivity.length
+    : 0
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {/* Thirdweb Header - KEEP THIS */}
@@ -904,11 +1294,6 @@ export function ThirdwebWalletInterface() {
                   {walletType === 'stellar' && stellarAddress ? (
                     // Stellar wallet connected
                     <>
-                      <Badge variant="outline" className="text-blue-600 border-blue-200 hidden sm:flex">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
-                        Mainnet
-                      </Badge>
-
                       <Button
                         variant="outline"
                         size="sm"
@@ -922,12 +1307,6 @@ export function ThirdwebWalletInterface() {
                   ) : (
                     // EVM wallet connected
                     <>
-                  <Badge variant="outline" className="text-green-600 border-green-200 hidden sm:flex">
-                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                    {getNetworkName(chain ? (chain.chainId as number) : undefined)}
-                  </Badge>
-
-
                   <Button
                     variant="outline"
                     size="sm"
@@ -1237,11 +1616,27 @@ export function ThirdwebWalletInterface() {
         {/* Balance Card */}
         <div className="px-6 pt-8">
           <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
-            <CardContent className="py-0 px-4 text-center">
+            <CardContent className="pt-[10px] pb-[10px] px-4 text-center">
               
+              {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) && (
+                <div className="mb-2 flex items-center justify-center">
+                  {walletType === 'stellar' ? (
+                    <Badge variant="outline" className="text-blue-600 border-blue-200">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+                      Mainnet
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-green-600 border-green-200">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                      {getNetworkName(chain ? (chain.chainId as number) : undefined)}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
               {/* Wallet Address with Copy Icon */}
               {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) && (
-                <div className="flex items-center justify-center gap-2 mb-2 pt-4">
+                <div className="flex items-center justify-center gap-2 mb-2">
                   <p className="text-xs text-gray-600 font-mono">
                     {walletType === 'stellar' && stellarAddress
                       ? `${stellarAddress.slice(0, 6)}...${stellarAddress.slice(-6)}`
@@ -1282,10 +1677,9 @@ export function ThirdwebWalletInterface() {
                   </div>
               )}
               
-              <p className="text-sm text-gray-600 mb-1">Your Balance</p>
               <div className="flex items-center justify-center gap-2">
-                  <p className="text-2xl font-bold text-gray-900">
-                    {totalBalanceValue.toFixed(2) || 0.00}   {` ${selectedCurrency}`} 
+                  <p className="text-[18px] font-bold text-gray-900">
+                    {totalBalanceValue.toFixed(2) ?? "0.00"} {selectedCurrency || "USD"}
                   </p>
                   <div className="flex items-center justify-center gap-2">
                     <div className="relative" ref={currencyDropdownRef}>
@@ -1295,8 +1689,8 @@ export function ThirdwebWalletInterface() {
                         className="h-6 px-2 text-xs border border-black text-black hover:text-black hover:border-black cursor-pointer"
                         onClick={() => {
                           setShowCurrencyDropdown(!showCurrencyDropdown)
-                          // Fetch currencies when dropdown is first opened and we have default currencies
-                          if (!showCurrencyDropdown && !currencyLoading && currencies.length <= 6) {
+                          // Fetch only when dropdown opens and currencies are empty
+                          if (!showCurrencyDropdown && !currencyLoading && currencies.length === 0) {
                             refetchCurrencies()
                           }
                         }}
@@ -1309,12 +1703,12 @@ export function ThirdwebWalletInterface() {
 
                         <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[120px] max-h-[200px] overflow-y-auto">
                           {currencyLoading ? (
-                            <div className="px-3 py-2 text-sm text-gray-500">
+                            <div className="px-2 py-1.5 text-xs text-gray-500">
                               Loading...
-                  </div>
+                            </div>
                           ) : currencyError ? (
-                            <div className="px-3 py-2 text-sm">
-                              <div className="text-red-500 mb-2">Error loading currencies</div>
+                            <div className="px-2 py-1.5 text-xs">
+                              <div className="text-red-500 mb-1">Error loading currencies</div>
                               <button
                                 onClick={() => {
                                   refetchCurrencies()
@@ -1324,24 +1718,68 @@ export function ThirdwebWalletInterface() {
                               >
                                 Retry
                               </button>
-                  </div>
-                            ) : (
-                              currencies.length > 0 && currencies.filter((currency: any) => currency.token_type?.toLowerCase() === "fiat" && (currency.coin_status === "active" || currency.status === "active")).map((currency) => (
-                              <button  
-                                key={currency.symbol}
-                                className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg cursor-pointer flex items-center justify-between ${
-                                  selectedCurrency === currency.code ? 'bg-blue-50 text-blue-700' : ''
-                                }`}
-                                onClick={() => {
-                                  setSelectedCurrency(currency.symbol)
-                                  setShowCurrencyDropdown(false)
-                                }}
-                              >
-                                <span className="text-xs text-gray-500">{currency.symbol}</span>
-                              </button>
-                            ))
+                            </div>
+                          ) : (
+                            (() => {
+                              const FIAT_CODES = new Set([
+                                "USD", "EUR", "GBP", "KES", "UGX", "TZS", "GHS", "NGN", "ZAR", "ETB", "AED", "ZMW", "JPY"
+                              ])
+
+                              const fiatCurrencies = (currencies || []).filter((currency: any) => {
+                                const tokenType = (currency?.token_type ?? "").toString().toLowerCase()
+                                const symbol = (currency?.symbol ?? currency?.code ?? "").toString().toUpperCase()
+                                const isActive =
+                                  currency?.coin_status === "active" ||
+                                  currency?.status === "active" ||
+                                  currency?.status === true ||
+                                  currency?.isActive === true
+
+                                return isActive && (tokenType === "fiat" || FIAT_CODES.has(symbol))
+                              })
+
+                              if (fiatCurrencies.length === 0) {
+                                return (
+                                  <div className="px-2 py-1.5 text-xs text-gray-500">No fiat currencies available</div>
+                                )
+                              }
+
+                              return fiatCurrencies.map((currency: any) => {
+                                const code = currency.code ?? currency.symbol
+                                const symbol = currency.symbol ?? code
+                                const iconSrc = getCurrencyFlagIcon(symbol)
+                                return (
+                                  <button
+                                    key={code ?? symbol}
+                                    className={`w-full px-2 py-1.5 text-left text-xs hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg cursor-pointer flex items-center gap-2 ${
+                                      selectedCurrency === symbol || selectedCurrency === code ? "bg-blue-50 text-blue-700" : "text-gray-900"
+                                    }`}
+                                    onClick={() => {
+                                      setSelectedCurrency(symbol)
+                                      setShowCurrencyDropdown(false)
+                                    }}
+                                  >
+                                    <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center relative">
+                                      <span className="text-[10px] font-semibold text-gray-500">
+                                        {(symbol || "?").slice(0, 2)}
+                                      </span>
+                                      {iconSrc && (
+                                        <img
+                                          src={iconSrc}
+                                          alt={symbol}
+                                          className="w-full h-full object-cover absolute inset-0"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none"
+                                          }}
+                                        />
+                                      )}
+                                    </div>
+                                    <span className="font-medium">{symbol}</span>
+                                  </button>
+                                )
+                              })
+                            })()
                           )}
-                </div>
+                        </div>
 
                       )}
                 </div>
@@ -1413,7 +1851,7 @@ export function ThirdwebWalletInterface() {
           exchangeRates={exchangeRates}
           connectedWallet={""}
           connectWalletBalance={0}
-
+          initialSwapParams={urlSwapParams ?? undefined}
           onConnectWallet={() => {
             toast({
               title: "Connect Wallet",
@@ -1450,12 +1888,12 @@ export function ThirdwebWalletInterface() {
               </TabsList>
 
           <TabsContent value="overview" className="mt-1">
-            {/* Supported Assets section - Only show when wallet is connected */}
+            {/* Assets section - Only show when wallet is connected */}
             {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) && (
               <div className="mb-2">
                 <div className="px-0 py-2">
                   <h3 className="text-md font-bold text-gray-500 mb-1">
-                    Supported Assets
+                    Assets
                   </h3>
                 </div>
                 <div className="space-y-0">
@@ -1471,99 +1909,204 @@ export function ThirdwebWalletInterface() {
                         </div>
                       </div>
                     </div>
-                  ) : getEnabledNativeAssetsFromApi().length > 0 ? (
+                  ) : (
                     (() => {
-                      const filteredAssets = getEnabledNativeAssetsFromApi().filter(asset => {
-                        // For Stellar wallets, only show XLM and USDC
-                        if (walletType === 'stellar' && asset.symbol !== 'XLM' && asset.symbol !== 'USDC') {
+                      const isCurrencyActive = (coin: any): boolean => {
+                        return (
+                          coin?.coin_status === "active" ||
+                          coin?.status === true ||
+                          coin?.status === "active" ||
+                          coin?.isActive === true
+                        )
+                      }
+
+                      const isNativeCurrency = (coin: any): boolean => {
+                        const tokenType = String(coin?.token_type || "").toLowerCase()
+                        return tokenType === "native" || coin?.type === "native"
+                      }
+
+                      const isStellarNetworkCurrency = (coin: any): boolean => {
+                        try {
+                          const rawNetworks = typeof coin?.networks === "string"
+                            ? JSON.parse(coin.networks || "[]")
+                            : (coin?.networks || [])
+                          if (!Array.isArray(rawNetworks)) return false
+                          return rawNetworks.some((entry: any) => {
+                            const network = String(entry?.network || "").toUpperCase()
+                            return network === "STELLAR"
+                          })
+                        } catch {
                           return false
                         }
-                        
-                        // For EVM wallets, show assets that match the current network
-                        if (walletType !== 'stellar' && asset.network !== getCurrentNetwork()) {
+                      }
+
+                      const normalizeNetwork = (value: string): string =>
+                        value.toUpperCase().replace(/[\s_-]/g, "")
+
+                      const getEvmNetworkAliases = (networkName: string): string[] => {
+                        const normalized = normalizeNetwork(networkName)
+                        if (normalized === "BSC") return ["BSC", "BNB", "BINANCESMARTCHAIN"]
+                        if (normalized === "CELO") return ["CELO"]
+                        if (normalized === "ETHEREUM") return ["ETHEREUM", "ETH"]
+                        if (normalized === "POLYGON") return ["POLYGON", "MATIC"]
+                        return [normalized]
+                      }
+
+                      const hasNetworkOption = (coin: any, targetNetworks: string[]): boolean => {
+                        try {
+                          const rawNetworks = typeof coin?.networks === "string"
+                            ? JSON.parse(coin.networks || "[]")
+                            : (coin?.networks || [])
+                          if (!Array.isArray(rawNetworks)) return false
+                          const targets = targetNetworks.map(normalizeNetwork)
+                          return rawNetworks.some((entry: any) => {
+                            const network = normalizeNetwork(String(entry?.network || ""))
+                            const label = normalizeNetwork(String(entry?.label || ""))
+                            return targets.includes(network) || targets.includes(label)
+                          })
+                        } catch {
                           return false
                         }
-                        
+                      }
+
+                      const currentEvmNetwork = chain ? getNetworkName(chain.chainId as number).toUpperCase() : ""
+
+                      const filteredAssets = (currencies || []).filter((coin: any) => {
+                        if (!isCurrencyActive(coin)) return false
+                        if (!isNativeCurrency(coin)) return false
+
+                        if (walletType === 'stellar') {
+                          if (!isStellarNetworkCurrency(coin)) return false
+                        } else if (currentEvmNetwork) {
+                          const aliases = getEvmNetworkAliases(currentEvmNetwork)
+                          if (!hasNetworkOption(coin, aliases)) return false
+                        }
+
                         return true
                       })
-                      
-                      return filteredAssets.map((asset, index) => {
-                        const tokenBalance = supportedTokens.find(t => t.symbol?.toLowerCase() === asset.symbol?.toLowerCase())
-                        const balance = tokenBalance?.balanceFormatted || '0.00'
-                        const hasAsset = checkWalletNativeCurrency(asset.symbol)
-                        
+
+                      const resolveWalletBalance = (asset: any): string => {
+                        if (walletType === 'stellar') {
+                          if (asset.symbol === 'USDC') return String(usdcStellarBalance)
+                          if (asset.symbol === 'XLM') return String(stellarBalance)
+                          return '0.00'
+                        }
+
+                        if (chain && address) {
+                          const nativeSymbol = getNativeSymbolForChain(chain.chainId)
+                          const isNative = asset.symbol?.toUpperCase() === nativeSymbol?.toUpperCase()
+                          if (isNative && nativeBalance?.displayValue != null) {
+                            return nativeBalance.displayValue
+                          }
+
+                          const tokenBalance = supportedTokens.find(
+                            t => t.symbol?.toLowerCase() === asset.symbol?.toLowerCase()
+                          )
+                          return String(tokenBalance?.balanceFormatted ?? tokenBalance?.balance ?? '0.00')
+                        }
+
+                        return '0.00'
+                      }
+
+                      const walletMatchedAssets = filteredAssets
+                        .map((asset) => {
+                          const walletBalanceFormatted = resolveWalletBalance(asset)
+                          const walletBalance = Number.parseFloat(walletBalanceFormatted)
+                          return {
+                            ...asset,
+                            walletBalanceFormatted,
+                            walletBalance: Number.isFinite(walletBalance) ? walletBalance : 0,
+                          }
+                        })
+
+                      if (walletMatchedAssets.length === 0) {
+                        return (
+                          <div className="p-8 text-center bg-gray-50">
+                            <div className="flex flex-col items-center gap-3">
+                              <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                                <WalletIcon className="h-6 w-6 text-gray-400" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-900">No supported assets</p>
+                                <p className="text-sm text-gray-600">
+                                  {walletType === 'stellar'
+                                    ? 'No active currencies found with STELLAR network support'
+                                    : currentEvmNetwork
+                                    ? `No active native currencies found for ${currentEvmNetwork} network`
+                                    : 'No active native currencies found'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+
+                      return walletMatchedAssets.map((asset, index) => {
+                        const balance = asset.walletBalanceFormatted
+                        const localFlagIcon = getCurrencyFlagIcon(asset.symbol)
+                        const fallbackIcon = getAssetIconFallback(asset)
+
                         return (
                           <div
                             key={`${asset.symbol}-${index}`}
                             className={`p-4 flex items-center justify-between bg-gray-50 ${
-                              index !== filteredAssets.length - 1 ? "border-b border-gray-100" : ""
+                              index !== walletMatchedAssets.length - 1 ? "border-b border-gray-100" : ""
                             }`}
                           >
                           <div className="flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
                               asset.type === 'native' ? 'bg-blue-100' : 'bg-green-100'
                             }`}>
-                              {asset?.icon ? (
-                                <img src={asset.icon} alt={asset.name} className="w-6 h-6 rounded-full" />
+                                  {localFlagIcon || fallbackIcon ? (
+                                    <img
+                                      src={localFlagIcon || fallbackIcon || ""}
+                                      alt={asset.token_name || asset.name || asset.symbol}
+                                      className="w-6 h-6 rounded-full"
+                                      onError={(e) => {
+                                        if (fallbackIcon && e.currentTarget.src !== fallbackIcon) {
+                                          e.currentTarget.src = fallbackIcon
+                                          return
+                                        }
+                                        e.currentTarget.style.display = "none"
+                                      }}
+                                    />
                               ) : (
                                 <span className={`text-xs font-bold ${
-                                  asset.type === 'native' ? 'text-blue-600' : 'text-green-600'
+                                  (asset.token_type === 'Native' || asset.type === 'native') ? 'text-blue-600' : 'text-green-600'
                                 }`}>
                                   {asset.symbol?.slice(0, 2).toUpperCase() || '--'}
                                 </span>
                               )}
                             </div>
                             <div>
-                              <p className="font-medium text-gray-900">{asset.name || asset.symbol}</p>
+                                  <p className="font-medium text-gray-900">{asset.token_name || asset.name || asset.symbol}</p>
                               <p className="text-sm text-gray-600">
-                                {walletType === 'stellar' && asset.symbol === 'USDC' 
-                                  ? `${usdcStellarBalance} ${asset.symbol}`
-                                  : walletType === 'stellar' && asset.symbol === 'XLM'
-                                  ? `${stellarBalance} ${asset.symbol}`
-                                  : `${balance} ${asset.symbol}`
-                                }
+                                {`${balance} ${asset.symbol}`}
                               </p>
+                              {generalExchangeRates.length > 0 && (() => {
+                                const rate = generalExchangeRates.find((r: any) => r.price?.base_coin === asset.symbol && r.price?.quote_coin === selectedCurrency)
+                                const price = rate ? Number(rate.price?.marketcap_amount) : null
+                                return price != null ? (
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    1 {asset.symbol} = {formatFiatExchangeRate(price)} {selectedCurrency}
+                                  </p>
+                                ) : null
+                              })()}
                             </div>
                           </div>
                           <div className="text-right">
                             <p className="font-medium text-gray-900">
                               {exchangeAmount(
-                                walletType === 'stellar' && asset.symbol === 'USDC' 
-                                  ? `${usdcStellarBalance}`
-                                  : walletType === 'stellar' && asset.symbol === 'XLM'
-                                  ? `${stellarBalance}`
-                                  : balance,
+                                balance,
                                 asset.symbol,
                                 selectedCurrency
                               ) || '0.00'} {selectedCurrency}
                             </p>
-                            <Badge 
-                              variant={hasAsset ? "default" : "secondary"} 
-                              className={`text-xs ${
-                                asset.type === 'native' 
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200' 
-                                  : 'bg-green-50 text-green-700 border-green-200'
-                              }`}
-                            >
-                              {asset.type === 'native' ? 'Native' : 'Token'}
-                            </Badge>
                           </div>
                         </div>
                         )
                       })
                     })()
-                  ) : (
-                    <div className="p-8 text-center bg-gray-50">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                          <WalletIcon className="h-6 w-6 text-gray-400" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">No assets found</p>
-                          <p className="text-sm text-gray-600">No supported assets available</p>
-                        </div>
-                      </div>
-                    </div>
                   )}
                 </div>
               </div>
@@ -1576,31 +2119,46 @@ export function ThirdwebWalletInterface() {
                 <h3 className="text-md font-bold text-gray-500 mb-1">Recent Transactions</h3>
               </div>
               <div className="space-y-0">
-                {mockTransactions.length > 0 ? (
-                  mockTransactions.map((transaction, index) => (
+                {walletActivityLoading ? (
+                  <div className="p-8 text-center bg-gray-50 py-10">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center animate-spin">
+                        <RefreshCwIcon className="h-6 w-6 text-gray-400" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900">Loading recent transactions...</p>
+                        <p className="text-sm text-gray-600">Fetching latest wallet activity</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : walletActivity.length > 0 ? (
+                  walletActivity.slice(0, 4).map((item, index) => (
                     <div
-                      key={transaction.id}
+                      key={`${item.id}-${index}`}
                       className={`p-4 flex items-center justify-between bg-gray-50 ${
-                        index !== mockTransactions.length - 1 ? "border-b border-gray-100" : ""
+                        index !== Math.min(walletActivity.length, 4) - 1 ? "border-b border-gray-100" : ""
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        {getTransactionIcon(transaction.type)}
+                        {item.type === "send" ? (
+                          <ArrowUpIcon className="h-4 w-4 text-red-500" />
+                        ) : (
+                          <ArrowDownIcon className="h-4 w-4 text-green-500" />
+                        )}
                         <div>
                           <p className="font-medium text-gray-900 capitalize">
-                            {transaction.type} {transaction.currency}
+                            {item.type} {item.asset}
                           </p>
-                          <p className="text-sm text-gray-600">{formatDate(transaction.date)}</p>
+                          <p className="text-sm text-gray-600">{formatDate(item.timestamp)}</p>
                         </div>
                       </div>
                       <div className="text-right">
                         <p className="font-medium text-gray-900">
-                              {transaction.type === "buy" || transaction.type === "receive" ? "+" : "-"}
-                              {transaction.amount} {transaction.currency}
+                              {item.type === "receive" ? "+" : "-"}
+                              {item.amount.toFixed(6)} {item.asset}
                         </p>
                         <div className="flex items-center gap-2">
-                          <p className="text-sm text-gray-600">${transaction.fiatAmount.toFixed(2)}</p>
-                          {getStatusBadge(transaction.status)}
+                          {getStatusBadge(item.status)}
                             </div>
                             </div>
                           </div>
@@ -1624,69 +2182,6 @@ export function ThirdwebWalletInterface() {
 
 
 
-            {isConnected && address && (
-              <div className="mb-2">
-               <div className="px-0 py-2">
-                 <h3 className="text-md font-bold text-gray-500 mb-1">
-                  Exchange Rates
-                 </h3>
-                </div>
-                <div className="space-y-0">
-                  {supportedTokensLoading ? (
-                    <div className="p-8 text-center bg-gray-50">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center animate-spin">
-                          <RefreshCwIcon className="h-4 w-4 text-gray-400" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">Loading exchange rates ...</p>
-                          <p className="text-sm text-gray-600">Fetching  exchange rates for {chain?.name} tokens</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : generalExchangeRates.length > 0 && (
-                    generalExchangeRates.filter(token => token?.token_type === 'Native').map((token, index) => (
-                       <div
-                        key={`${token.token_name}-${index}`}
-                        className={`p-4 py-2 flex items-center justify-between bg-gray-50 ${
-                          index !== supportedTokens.length - 1 ? "border-b border-gray-100" : ""
-                        }`}
-                        >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                            token.type === 'native' ? 'bg-blue-100' : 'bg-green-100'
-                          }`}>
-                            {token.logo ? (
-                              <img src={token.icon} alt={token.symbol} className="w-6 h-6 rounded-full" />
-                            ) : (
-                              <span className={`text-xs font-bold ${
-                                token.type === 'native' ? 'text-blue-600' : 'text-green-600'
-                              }`}>
-                                {token.symbol.slice(0, 1).toUpperCase()}{token.symbol.slice(-1).toUpperCase()}
-                              </span>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">
-                              {token.symbol}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-small text-green-400 text-sm">
-                            <span>Buy</span> {(Number(token?.price?.amount) - (Number(token?.price?.amount)*(Number(token?.price?.buy_markup)/100))).toFixed(2) || ""} {token.price.quote_coin}
-                          </p>
-                          <p className="font-small text-red-400 text-sm">
-                            <span>Sell</span> {((((token?.price?.buy_markup/100)*Number(token?.price?.amount)) + Number(token?.price?.amount))).toFixed(2) || ""} {token.price.quote_coin}
-                          </p>
-                        </div>
-                      </div>
-                      
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
           
           </TabsContent>
           
@@ -1694,41 +2189,72 @@ export function ThirdwebWalletInterface() {
           <TabsContent value="transactions" className="mt-6">
             {/* Transactions section */}
             <div>
-              <div className="px-6 py-2">
-                <h3 className="text-xl font-bold text-gray-900 mb-3 flex items-center gap-2">
-                  All Transactions
-                </h3>
-              </div>
               <div className="space-y-0">
-                {mockTransactions.length > 0 ? (
-                  mockTransactions.map((transaction, index) => (
+                {walletActivityLoading ? (
+                  <div className="p-8 text-center bg-gray-50 py-10">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center animate-spin">
+                        <RefreshCwIcon className="h-6 w-6 text-gray-400" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900">Loading wallet transactions...</p>
+                        <p className="text-sm text-gray-600">Fetching blockchain activity</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : walletActivityError ? (
+                  <div className="p-8 text-center bg-gray-50 py-10">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                        <XIcon className="h-6 w-6 text-red-500" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900">Failed to load transactions</p>
+                        <p className="text-sm text-gray-600">{walletActivityError}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : walletActivity.length > 0 ? (
+                  <>
+                  {walletActivity.map((item, index) => (
                     <div
-                      key={transaction.id}
+                      key={`${item.id}-${index}`}
                       className={`p-4 flex items-center justify-between bg-gray-50 ${
-                        index !== mockTransactions.length - 1 ? "border-b border-gray-100" : ""
+                        index !== walletActivity.length - 1 ? "border-b border-gray-100" : ""
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        {getTransactionIcon(transaction.type)}
+                        {item.type === "send" ? (
+                          <ArrowUpIcon className="h-4 w-4 text-red-500" />
+                        ) : (
+                          <ArrowDownIcon className="h-4 w-4 text-green-500" />
+                        )}
                         <div>
                           <p className="font-medium text-gray-900 capitalize">
-                            {transaction.type} {transaction.currency}
+                            {item.type} {item.asset}
                           </p>
-                          <p className="text-sm text-gray-600">{formatDate(transaction.date)}</p>
+                          <p className="text-sm text-gray-600">{formatDate(item.timestamp)}</p>
                             </div>
                           </div>
                           <div className="text-right">
                         <p className="font-medium text-gray-900">
-                              {transaction.type === "buy" || transaction.type === "receive" ? "+" : "-"}
-                              {transaction.amount} {transaction.currency}
+                              {item.type === "receive" ? "+" : "-"}
+                              {item.amount.toFixed(6)} {item.asset}
                         </p>
                         <div className="flex items-center gap-2">
-                          <p className="text-sm text-gray-600">${transaction.fiatAmount.toFixed(2)}</p>
-                          {getStatusBadge(transaction.status)}
+                          {getStatusBadge(item.status)}
                             </div>
                             </div>
                           </div>
-                        ))
+                        ))}
+                        {walletActivityHasMore && (
+                          <div className="p-4 bg-gray-50 border-t border-gray-100" ref={transactionsLoadMoreRef}>
+                            <div className="text-center text-sm text-gray-600">
+                              {walletActivityLoadingMore ? "Loading more transactions..." : "Scroll to load more"}
+                            </div>
+                          </div>
+                        )}
+                  </>
                 ) : (
                   <div className="p-8 text-center bg-gray-50 py-10">
                     <div className="flex flex-col items-center gap-3">
@@ -1749,173 +2275,52 @@ export function ThirdwebWalletInterface() {
           <TabsContent value="activity" className="mt-6">
             {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? (
               <>
-                {/* Transaction Statistics */}
-            <div className="mb-4">
-              
-              <div className="px-6 py-2">
-                <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Statistics</h3>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-3 px-6 mb-4">
-                <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
-                  <div className="flex items-center gap-2 mb-1">
-                    <ArrowUpIcon className="h-4 w-4 text-blue-600" />
-                    <p className="text-xs text-gray-600">Total Sent</p>
-              </div>
-                  <p className="text-xl font-bold text-blue-600">--</p>
-                  <p className="text-xs text-gray-600">--</p>
-                </div>
-                <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
-                  <div className="flex items-center gap-2 mb-1">
-                    <ArrowDownIcon className="h-4 w-4 text-green-600" />
-                    <p className="text-xs text-gray-600">Total Received</p>
+                {/* On-chain Activity Statistics */}
+                <div className="mb-4">
+                  <div className="px-6 py-2">
+                    <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Statistics</h3>
                   </div>
-                  <p className="text-xl font-bold text-green-600">--</p>
-                  <p className="text-xs text-gray-600">--</p>
-                </div>
-              </div>
-            </div>
 
-            {/* Monthly Report */}
-            <div className="mb-4">
-              <div className="px-6 py-2">
-                <h3 className="text-xl font-bold text-gray-900 mb-3">Monthly Report</h3>
-              </div>
-              <div className="px-6">
-                <Card className="bg-white border-gray-200 shadow-sm">
-                  <CardContent className="p-4">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Total Volume</span>
-                        <span className="font-semibold text-gray-900">--</span>
+                  <div className="grid grid-cols-2 gap-3 px-6 mb-4">
+                    <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <ArrowUpIcon className="h-4 w-4 text-blue-600" />
+                        <p className="text-xs text-gray-600">Total Sent</p>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Transactions</span>
-                        <span className="font-semibold text-gray-900">--</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Average Transaction</span>
-                        <span className="font-semibold text-gray-900">--</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Net Change</span>
-                        <span className="font-semibold text-green-600">--</span>
-                      </div>
+                      <p className="text-xl font-bold text-blue-600">{totalSentActivity.toFixed(6)}</p>
+                      <p className="text-xs text-gray-600">{walletActivity[0]?.asset || "--"}</p>
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+                    <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <ArrowDownIcon className="h-4 w-4 text-green-600" />
+                        <p className="text-xs text-gray-600">Total Received</p>
+                      </div>
+                      <p className="text-xl font-bold text-green-600">{totalReceivedActivity.toFixed(6)}</p>
+                      <p className="text-xs text-gray-600">{walletActivity[0]?.asset || "--"}</p>
+                    </div>
+                  </div>
 
-            {/* Transaction Activity Graph */}
-            <div className="mb-4">
-              <div className="px-6 py-2">
-                <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Activity</h3>
-              </div>
-              <div className="px-6">
-                <Card className="bg-white border-gray-200 shadow-sm">
-                  <CardContent className="p-4">
-                    {/* Simple Bar Chart Representation */}
-                    <div className="space-y-3">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-gray-600">Monday</span>
-                          <span className="text-xs font-medium text-gray-900">--</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-gray-600">Tuesday</span>
-                          <span className="text-xs font-medium text-gray-900">--</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-gray-600">Wednesday</span>
-                          <span className="text-xs font-medium text-gray-900">--</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-gray-600">Thursday</span>
-                          <span className="text-xs font-medium text-gray-900">--</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
-                            </div>
-                            </div>
-                          <div>
-                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-gray-600">Friday</span>
-                          <span className="text-xs font-medium text-gray-900">--</span>
+                  <div className="px-6">
+                    <Card className="bg-white border-gray-200 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-600">Transactions</span>
+                            <span className="font-semibold text-gray-900">{walletActivity.length}</span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-600">Average Transaction</span>
+                            <span className="font-semibold text-gray-900">{averageActivity.toFixed(6)}</span>
                           </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* Transaction Breakdown */}
-            <div className="mb-4">
-              <div className="px-6 py-2">
-                <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Breakdown</h3>
-              </div>
-              <div className="px-6">
-                <div className="space-y-3">
-                  <div className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
-                         <span className="text-sm font-medium text-gray-900">Buy</span>
-                       </div>
-                      <span className="text-sm font-bold text-blue-600">--</span>
-                    </div>
-                    <div className="w-full bg-white rounded-full h-2">
-                      <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-gradient-to-r from-red-50 to-red-100 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 bg-red-600 rounded-full"></div>
-                        <span className="text-sm font-medium text-gray-900">Sell</span>
-                      </div>
-                      <span className="text-sm font-bold text-red-600">--</span>
-                    </div>
-                    <div className="w-full bg-white rounded-full h-2">
-                      <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 bg-green-600 rounded-full"></div>
-                        <span className="text-sm font-medium text-gray-900">Receive</span>
-                      </div>
-                      <span className="text-sm font-bold text-green-600">--</span>
-                    </div>
-                    <div className="w-full bg-white rounded-full h-2">
-                      <div className="bg-gray-400 h-2 rounded-full" style={{ width: '0%' }}></div>
-                    </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-600">Network</span>
+                            <span className="font-semibold text-gray-900">{walletType === "stellar" ? "Stellar" : getNetworkName(chain ? (chain.chainId as number) : undefined)}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
                 </div>
-              </div>
-          </div>
 
             {/* Wallet Status */}
             <div className="mb-4">
