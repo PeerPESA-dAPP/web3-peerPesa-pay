@@ -12,8 +12,8 @@ import { CurrencyProvider } from "@/contexts/CurrencyContext"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "PeerPesa Wallet",
-  description: "Mobile crypto wallet for CELO and multi-currency transactions",
+  title: "PeerPesa Pay",
+  description: "Instant, low cost, borderless payments across Africa",
   generator: "v0.app",
   icons: {
     icon: "/favicon.ico",
