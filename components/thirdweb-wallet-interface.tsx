@@ -1,7 +1,9 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
+import { createPublicClient, http, formatUnits } from 'viem'
+import { celo, mainnet, polygon, arbitrum, optimism, base, bsc, avalanche, alephZeroTestnet } from 'viem/chains'
 import { 
   ConnectWallet,
   useAddress,
@@ -49,7 +51,9 @@ import {
   checkNativeCurrencySymbols,
   checkNativeCurrenciesFromApi,
   fetchWalletAssets,
-  formatAssetBalance
+  formatAssetBalance,
+  compareNativeCurrenciesWithWallet,
+  type MatchedCurrency,
 } from "@/utils/assets"
 import { 
   WalletIcon, 
@@ -69,10 +73,12 @@ import {
   ChevronDownIcon,
   HomeIcon,
   ActivityIcon,
+  BellIcon,
   GlobeIcon,
   XIcon,
 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import { WalletNotifications, useHasActiveNotifications, NotificationsPanel, useRecordToastNotifications, useNotificationCount } from "@/components/wallet-notifications"
 import {
   parseSwapUrlParams,
   isSwapModeFromUrl,
@@ -125,6 +131,9 @@ const mockTransactions: Transaction[] = [
 
 export function ThirdwebWalletInterface() {
   const searchParams = useSearchParams()
+  const hasActiveNotifications = useHasActiveNotifications()
+  const notificationCount = useNotificationCount()
+  useRecordToastNotifications()
   const [activeTab, setActiveTab] = useState("overview")
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false)
   
@@ -169,7 +178,7 @@ export function ThirdwebWalletInterface() {
   const [transactionType, setTransactionType] = useState<"send" | "buy" | "swap">("send")
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
-  const [celoBalance, setCeloBalance] = useState(0.00)
+
   const connectWalletRef = useRef<HTMLDivElement>(null)
   const [usdValue, setUsdValue] = useState(0.00)
   const [totalBalanceValue, setTotalBalanceValue] = useState(0.00)
@@ -190,6 +199,9 @@ export function ThirdwebWalletInterface() {
   const currencyDropdownRef = useRef<HTMLDivElement>(null)
   const initialCurrenciesFetchedRef = useRef(false)
   const transactionsLoadMoreRef = useRef<HTMLDivElement>(null)
+  const overviewTxLoadMoreRef = useRef<HTMLDivElement>(null)
+  const [overviewTxVisible, setOverviewTxVisible] = useState(5)
+  const [txTabVisible, setTxTabVisible] = useState(5)
 
   // Wallet asset management
   const [walletAssets, setWalletAssets] = useState<any[]>([])
@@ -229,8 +241,255 @@ export function ThirdwebWalletInterface() {
 
   // Token balance hooks
   const { data: nativeBalance } = useBalance()
-  // Note: For multiple tokens, we'll need to use individual useTokenBalance hooks
-  // or implement a different approach to get all token balances
+
+  // ERC-20 token balances: symbol -> balance number
+  const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({})
+  const [tokenBalancesLoading, setTokenBalancesLoading] = useState(false)
+
+  // ERC-20 balanceOf ABI fragment
+  const erc20Abi = [
+    {
+      inputs: [{ name: 'account', type: 'address' }],
+      name: 'balanceOf',
+      outputs: [{ name: '', type: 'uint256' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+    {
+      inputs: [],
+      name: 'decimals',
+      outputs: [{ name: '', type: 'uint8' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+  ] as const
+
+  // Map chain ID to viem chain object for public client
+  const getViemChain = useCallback((chainId: number) => {
+    const chainMap: Record<number, any> = {
+      1: mainnet, 137: polygon, 42161: arbitrum, 10: optimism,
+      8453: base, 56: bsc, 43114: avalanche, 42220: celo,
+    }
+    return chainMap[chainId] || celo
+  }, [])
+
+  // Well-known ERC-20 contract addresses as fallbacks when API doesn't provide them
+  // chainId -> symbol -> contractAddress
+  const KNOWN_TOKEN_CONTRACTS: Record<number, Record<string, string>> = {
+    42220: { // Celo
+      CUSD:  '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+      CEUR:  '0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73',
+      CREAL: '0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787',
+      USDC:  '0xcebA9300f2b948710d2653dD7B07f33A8B32118C',
+      USDT:  '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e',
+    },
+    1: { // Ethereum mainnet
+      USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+      USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+      DAI:  '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+    },
+    137: { // Polygon
+      USDT: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+      USDC: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+    },
+    42161: { // Arbitrum
+      USDT: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+      USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    },
+    10: { // Optimism
+      USDT: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
+      USDC: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+    },
+    8453: { // Base
+      USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+    },
+    56: { // BNB Chain
+      USDT: '0x55d398326f99059fF775485246999027B3197955',
+      USDC: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+    },
+    43114: { // Avalanche
+      USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+      USDC: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
+    },
+  }
+
+  // Helper: extract contract address from API coin, with fallbacks for well-known tokens
+  const getTokenContractForNetwork = useCallback((coin: any, networkName: string, chainId?: number): string | null => {
+    const sym = (coin?.symbol || '').toUpperCase()
+
+    // 1. Try API-provided contract address from the matching network entry
+    try {
+      const nets = typeof coin?.networks === 'string' ? JSON.parse(coin.networks || '[]') : (coin?.networks || [])
+      if (Array.isArray(nets)) {
+        const normTarget = networkName.toLowerCase().replace(/[\s_-]/g, '')
+        for (const net of nets) {
+          if (net.status !== 'active') continue
+          const netName = (net.network || net.label || '').toLowerCase().replace(/[\s_-]/g, '')
+          if (netName.includes(normTarget) || normTarget.includes(netName) || netName === normTarget) {
+            const addr = net.contract_address || net.contractAddress || net.token_address || net.address || null
+            if (addr && typeof addr === 'string' && addr.startsWith('0x') && addr.length === 42) return addr
+          }
+        }
+      }
+      // Top-level contract_address fallback
+      const topAddr = coin?.contract_address
+      if (topAddr && typeof topAddr === 'string' && topAddr.startsWith('0x') && topAddr.length === 42) return topAddr
+    } catch { }
+
+    // 2. Fall back to well-known hardcoded addresses by chainId
+    if (chainId && KNOWN_TOKEN_CONTRACTS[chainId]?.[sym]) {
+      return KNOWN_TOKEN_CONTRACTS[chainId][sym]
+    }
+
+    return null
+  }, [])
+
+  // Known explorer API URLs for token balance discovery
+  const getExplorerApiUrl = useCallback((chainId: number): string | null => {
+    const knownExplorers: Record<number, string> = {
+      42220: 'https://api.celoscan.io/api',
+      1: 'https://api.etherscan.io/api',
+      137: 'https://api.polygonscan.com/api',
+      42161: 'https://api.arbiscan.io/api',
+      10: 'https://api-optimistic.etherscan.io/api',
+      8453: 'https://api.basescan.org/api',
+      56: 'https://api.bscscan.com/api',
+      43114: 'https://api.snowtrace.io/api',
+    }
+    return knownExplorers[chainId] || null
+  }, [])
+
+  // Fetch all ERC-20 token balances for the connected EVM wallet using explorer tokenlist API
+  const fetchWalletTokenBalances = useCallback(async (walletAddress: string, chainId: number) => {
+    const explorerUrl = getExplorerApiUrl(chainId)
+    if (!explorerUrl) return null
+
+    try {
+ 
+
+      const response = await fetch(
+        `${explorerUrl}?module=account&action=tokenlist&address=${walletAddress}`
+      )
+      if (!response.ok) return null
+
+      const data = await response.json()
+      const tokens = Array.isArray(data?.result) ? data.result : []
+
+      // Filter tokens with balance > 0 and map to a usable format
+      const balances: Record<string, number> = {}
+      const tokenDetails: Array<{
+        symbol: string
+        name: string
+        balance: number
+        contractAddress: string
+        decimals: number
+      }> = []
+
+
+      console.log("11111 tokens", tokens)
+
+      for (const token of tokens) {
+
+        const rawBalance = token?.balance || '0'
+        const decimals = Number(token?.decimals || 18)
+        const balance = parseFloat(formatUnits(BigInt(rawBalance), decimals))
+
+        if (balance > 0) {
+          const symbol = (token?.symbol || '').toUpperCase()
+          balances[symbol] = balance
+          tokenDetails.push({
+            symbol,
+            name: token?.name || symbol,
+            balance,
+            contractAddress: token?.contractAddress || '',
+            decimals,
+          })
+        }
+      }
+
+      console.log(`[fetchWalletTokenBalances] Explorer API returned ${tokenDetails.length} tokens with balance > 0 for ${walletAddress} on chain ${chainId}`, balances, tokenDetails)
+      return { balances, tokenDetails }      
+    } catch (error) {
+      console.warn('[fetchWalletTokenBalances] Explorer tokenlist failed:', error)
+      return null
+    }
+  }, [getExplorerApiUrl])
+
+  // Fetch ERC-20 token balances when wallet is connected
+  useEffect(() => {
+    if (!address || !chain || walletType === 'stellar') return
+
+    const currentChainId = chain.chainId as number
+    const viemChain = getViemChain(currentChainId)
+    const networkName = getNetworkName(currentChainId)
+    const nativeSymbol = getNativeSymbolForChain(currentChainId)
+
+    const loadBalances = async () => {
+      setTokenBalancesLoading(true)
+
+      // 1. Try explorer tokenlist API first (discovers ALL tokens with balance > 0)
+      const explorerResult = await fetchWalletTokenBalances(address, currentChainId)
+      if (explorerResult && Object.keys(explorerResult.balances).length > 0) {
+        console.log(`[tokenBalances] Explorer discovered ${Object.keys(explorerResult.balances).length} tokens with balance:`, explorerResult.balances)
+        setTokenBalances(explorerResult.balances)
+        setTokenBalancesLoading(false)
+        return
+      }
+
+      // 2. Fallback: manually read balances for known API currencies
+      const tokensToCheck = (currencies || []).filter((coin: any) => {
+        const type = String(coin?.token_type || '').toLowerCase()
+        const active = coin?.coin_status === 'active' || coin?.status === 'active' || coin?.status === true
+        if (!active || (type !== 'native')) return false
+        if (coin.symbol?.toUpperCase() === nativeSymbol?.toUpperCase()) return false
+        return getTokenContractForNetwork(coin, networkName, currentChainId) !== null
+      })
+
+      if (tokensToCheck.length === 0) {
+        setTokenBalances({})
+        setTokenBalancesLoading(false)
+        return
+      }
+
+      const balances: Record<string, number> = {}
+      const client = createPublicClient({
+        chain: viemChain,
+        transport: http(),
+      })
+
+      await Promise.all(tokensToCheck.map(async (coin: any) => {
+        const sym = (coin.symbol || '').toUpperCase()
+        const contractAddr = getTokenContractForNetwork(coin, networkName, currentChainId)
+        if (!contractAddr) return
+
+        try {
+          const [rawBalance, decimals] = await Promise.all([
+            client.readContract({
+              address: contractAddr as `0x${string}`,
+              abi: erc20Abi,
+              functionName: 'balanceOf',
+              args: [address as `0x${string}`],
+            }),
+            client.readContract({
+              address: contractAddr as `0x${string}`,
+              abi: erc20Abi,
+              functionName: 'decimals',
+            }),
+          ])
+          balances[sym] = parseFloat(formatUnits(rawBalance as bigint, decimals as number))
+        } catch (err) {
+          console.warn(`[thirdweb] Failed to read balance for ${sym} at ${contractAddr}:`, err)
+          balances[sym] = 0
+        }
+      }))
+
+      setTokenBalances(balances)
+      setTokenBalancesLoading(false)
+    }
+
+    loadBalances()
+  }, [address, chain?.chainId, walletType, currencies, getViemChain, getTokenContractForNetwork, fetchWalletTokenBalances])
 
   // Function to check if wallet is available
   const isWalletAvailable = (walletName: string) => {
@@ -493,19 +752,7 @@ export function ThirdwebWalletInterface() {
     }
   }
 
-  // Function to fetch CELO balance for EVM wallets
-  const fetchCeloBalance = async (address: string) => {
-    try {
-      // For demo purposes, set a mock CELO balance when connected
-      setCeloBalance(10.5000)
-      setUsdValue(6.825)
-      console.log(`CELO balance set for address: ${address}`)
-    } catch (error) {
-      console.error('Error setting CELO balance:', error)
-      setCeloBalance(0.00)
-      setUsdValue(0.00)
-    }
-  }
+
 
 
   // Function to fetch Stellar wallet balance
@@ -519,20 +766,15 @@ export function ThirdwebWalletInterface() {
 
         const accountData = await response.json()
         
-
         // Find XLM balance
         const xlmBalance = accountData.balances.find((balance: any) => balance.asset_type === 'native')
         if (xlmBalance) {
           setStellarBalance(parseFloat(xlmBalance.balance))
-          console.log(`Stellar balance fetched: ${xlmBalance.balance} XLM`)
         }
 
-        ///  also fetch USDC balance
-        console.log(`USDC -------------- USDC`, accountData)
         const usdcBalance = accountData.balances.find((balance: any) => balance.asset_type === 'usdc')
         if (usdcBalance) {
           setUsdcStellarBalance(parseFloat(usdcBalance.balance))
-          console.log(`USDC balance fetched: ${usdcBalance.balance} USDC`)
         }
 
 
@@ -633,12 +875,6 @@ export function ThirdwebWalletInterface() {
     setStellarBalance(0)
     setUsdcStellarBalance(0)
     
-    // Only reset CELO balance if no EVM wallet is connected
-    if (!isConnected || !address) {
-      setCeloBalance(0.00)
-      setUsdValue(0.00)
-    }
-    
     // Clear localStorage
     localStorage.removeItem('peerpesa_wallet_type')
     localStorage.removeItem('peerpesa_stellar_address')
@@ -682,7 +918,6 @@ export function ThirdwebWalletInterface() {
       setWalletType('stellar')
       setStellarAddress(savedStellarAddress)
       fetchStellarBalance(savedStellarAddress)
-      fetchCeloBalance(savedStellarAddress)
     }
   }, [])
   const connectionStatus = useConnectionStatus()
@@ -692,33 +927,17 @@ export function ThirdwebWalletInterface() {
 
   const isConnected = connectionStatus === "connected"
 
-  // Sync connection status with toast notifications and fetch CELO balance
+  // Sync EVM connection status — reset token balances when wallet disconnects
   useEffect(() => {
-    if (isConnected && address) {
-      toast({
-        title: "Wallet Connected",
-        description: `Connected to ${address.slice(0, 6)}...${address.slice(-4)}`,
-        variant: "default",
-      })
-      
-      // Fetch CELO balance when EVM wallet connects
-      fetchCeloBalance(address)
-    } else if (!isConnected && !address && !stellarAddress) {
-      // Reset CELO balance when no wallet is connected (neither EVM nor Stellar)
-      setCeloBalance(0.00)
-      setUsdValue(0.00)
+    if (!isConnected && !address) {
+      setTokenBalances({})
     }
-  }, [isConnected, address, walletType])
+  }, [isConnected, address])
 
   // Handle Stellar wallet balance updates
   useEffect(() => {
     if (walletType === 'stellar' && stellarAddress) {
-      // Set CELO balance when Stellar wallet is connected
-      fetchCeloBalance(stellarAddress)
-    } else if (walletType === null && !stellarAddress) {
-      // Reset CELO balance when Stellar wallet is disconnected
-      setCeloBalance(0.00)
-      setUsdValue(0.00)
+      fetchStellarBalance(stellarAddress)
     }
   }, [walletType, stellarAddress])
 
@@ -757,11 +976,8 @@ export function ThirdwebWalletInterface() {
     try {
       await disconnect()
       
-      // Only reset CELO balance if no Stellar wallet is connected
-      if (walletType !== 'stellar' || !stellarAddress) {
-        setCeloBalance(0.00)
-        setUsdValue(0.00)
-      }
+      // Reset balances on EVM disconnect
+      setTokenBalances({})
       
       toast({
         title: "Wallet Disconnected",
@@ -925,10 +1141,11 @@ export function ThirdwebWalletInterface() {
 
       activeSupportedAssets.forEach((asset: any) => {
         const assetSymbol = String(asset?.symbol || "")
-        const isNative = assetSymbol.toUpperCase() === nativeSymbol?.toUpperCase()
+        const sym = assetSymbol.toUpperCase()
+        const isNative = sym === nativeSymbol?.toUpperCase()
         const balance = isNative && nativeBalance?.displayValue != null
           ? Number(nativeBalance.displayValue)
-          : Number(asset?.balanceFormatted ?? asset?.balance ?? 0)
+          : (sym in tokenBalances ? tokenBalances[sym] : Number(asset?.balanceFormatted ?? asset?.balance ?? 0))
         const quoteRate = getQuoteRate(assetSymbol)
         if (quoteRate > 0 && balance > 0) totalValue += balance * quoteRate
       })
@@ -947,6 +1164,7 @@ export function ThirdwebWalletInterface() {
     chain,
     nativeBalance?.displayValue,
     currencies,
+    tokenBalances,
   ])
 
 
@@ -1064,7 +1282,21 @@ export function ThirdwebWalletInterface() {
     const explorerApiUrl =
       (chain as any)?.blockExplorers?.default?.apiUrl ||
       (chain as any)?.explorers?.[0]?.apiUrl ||
-      null
+      // Known explorer API URLs as fallback
+      (() => {
+        const chainId = chain ? (chain.chainId as number) : 0
+        const knownExplorers: Record<number, string> = {
+          42220: 'https://api.celoscan.io/api',
+          1: 'https://api.etherscan.io/api',
+          137: 'https://api.polygonscan.com/api',
+          42161: 'https://api.arbiscan.io/api',
+          10: 'https://api-optimistic.etherscan.io/api',
+          8453: 'https://api.basescan.org/api',
+          56: 'https://api.bscscan.com/api',
+          43114: 'https://api.snowtrace.io/api',
+        }
+        return knownExplorers[chainId] || null
+      })()
 
     if (explorerApiUrl) {
       try {
@@ -1125,10 +1357,13 @@ export function ThirdwebWalletInterface() {
     if (!Number.isFinite(latest)) return { items: [], hasMore: false, nextBlock: null, mode: "evm-rpc" }
 
     const startBlock = rpcFromBlock == null ? latest : rpcFromBlock
-    const blockNumbers = Array.from({ length: 40 }, (_, idx) => startBlock - idx).filter((n) => n >= 0)
-    const blocks = await Promise.all(
-      blockNumbers.map((bn) => rpcCall("eth_getBlockByNumber", [`0x${bn.toString(16)}`, true]))
-    )
+    const blockNumbers = Array.from({ length: 5 }, (_, idx) => startBlock - idx).filter((n) => n >= 0)
+    // Fetch blocks sequentially to avoid 429 rate limiting
+    const blocks: any[] = []
+    for (const bn of blockNumbers) {
+      const block = await rpcCall("eth_getBlockByNumber", [`0x${bn.toString(16)}`, true])
+      blocks.push(block)
+    }
 
     const items: WalletActivityItem[] = []
     blocks.forEach((block: any) => {
@@ -1236,9 +1471,11 @@ export function ThirdwebWalletInterface() {
     }
   }
 
+  // Transactions tab: show more local items on scroll, then fetch more from chain
   useEffect(() => {
     if (activeTab !== "transactions") return
-    if (!walletActivityHasMore) return
+    const hasMoreLocal = walletActivity.length > txTabVisible
+    if (!hasMoreLocal && !walletActivityHasMore) return
     const sentinel = transactionsLoadMoreRef.current
     if (!sentinel) return
 
@@ -1246,7 +1483,11 @@ export function ThirdwebWalletInterface() {
       (entries) => {
         const entry = entries[0]
         if (entry?.isIntersecting && !walletActivityLoading && !walletActivityLoadingMore) {
-          loadMoreWalletActivity()
+          if (walletActivity.length > txTabVisible) {
+            setTxTabVisible((prev) => prev + 5)
+          } else {
+            loadMoreWalletActivity()
+          }
         }
       },
       { root: null, rootMargin: "220px", threshold: 0.1 }
@@ -1254,10 +1495,30 @@ export function ThirdwebWalletInterface() {
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [activeTab, walletActivityHasMore, walletActivityLoading, walletActivityLoadingMore, walletActivity.length])
+  }, [activeTab, walletActivityHasMore, walletActivityLoading, walletActivityLoadingMore, walletActivity.length, txTabVisible])
+
+  // Overview recent transactions: show more on scroll
+  useEffect(() => {
+    if (activeTab !== "overview") return
+    if (walletActivity.length <= overviewTxVisible) return
+    const sentinel = overviewTxLoadMoreRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setOverviewTxVisible((prev) => prev + 5)
+        }
+      },
+      { root: null, rootMargin: "220px", threshold: 0.1 }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [activeTab, walletActivity.length, overviewTxVisible])
 
   useEffect(() => {
-    if (activeTab === "overview" || activeTab === "transactions" || activeTab === "activity") {
+    if (activeTab === "overview" || activeTab === "transactions" || activeTab === "notifications") {
       loadInitialWalletActivity()
     }
   }, [activeTab, walletType, stellarAddress, isConnected, address, chain?.chainId])
@@ -1790,52 +2051,7 @@ export function ThirdwebWalletInterface() {
 
               </CardContent>
             </Card>
-           {! showTransactionForms && (
-              <div className="grid grid-cols-3 gap-3 mb-6">
-                <Button
-                  variant="outline"
-                  className="h-12 flex flex-col items-center justify-center gap-1 bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black cursor-pointer"
-                  onClick={() => {
-                     setTransactionType("send")
-                     setShowTransactionForms(true)
-                  }}
-                >
-                  <div className="flex items-center gap-1">
-                    <SendIcon className="h-4 w-4" />
-                    <span className="text-xs">Send Money</span>
-                  </div>
-                </Button>
-
-                <Button
-                  className="h-12 flex flex-col items-center justify-center gap-1 bg-[#19B17A] hover:bg-[#158f68] text-white cursor-pointer"
-                 onClick={() => {
-                     setTransactionType("buy")
-                     setShowTransactionForms(true)
-                  }}
-                >
-                  <div className="flex items-center gap-1">
-                    <WalletIcon className="h-4 w-4" />
-                    <span className="text-xs">Buy</span>
-                  </div>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-12 flex flex-col items-center justify-center gap-1 bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black cursor-pointer"
-                  onClick={() => {
-                    setTransactionType("swap")
-                    setShowTransactionForms(true)
-                 }}
-                >
-                  <div className="flex items-center gap-1">
-                    <RefreshCwIcon className="h-4 w-4" />
-                    <span className="text-xs">Swap</span>
-                  </div>
-                </Button>
-              </div>
-           )} 
       </div>
-
-        
 
       {/* Transaction Forms Modal */}
       {showTransactionForms && (
@@ -1849,8 +2065,9 @@ export function ThirdwebWalletInterface() {
           mainWalletType={walletType}
           walletNetwork={walletType === "stellar" ? "Stellar" : (chain ? getNetworkName(chain.chainId as number) : undefined)}
           exchangeRates={exchangeRates}
-          connectedWallet={""}
+          connectedWallet={address || ""}
           connectWalletBalance={0}
+          tokenBalances={tokenBalances}
           initialSwapParams={urlSwapParams ?? undefined}
           onConnectWallet={() => {
             toast({
@@ -1862,8 +2079,7 @@ export function ThirdwebWalletInterface() {
          />
        )}
         
-
-            {/* Tabs */}
+       {/* Tabs */}
        {!showTransactionForms && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
           <TabsList className="grid w-full grid-cols-3 bg-gray-100">
@@ -1880,10 +2096,10 @@ export function ThirdwebWalletInterface() {
               Transactions
                 </TabsTrigger>
             <TabsTrigger
-              value="activity"
+              value="notifications"
               className="data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=inactive]:text-black hover:text-black cursor-pointer"
             >
-              Wallet Activity
+              Notifications
                 </TabsTrigger>
               </TabsList>
 
@@ -1911,113 +2127,24 @@ export function ThirdwebWalletInterface() {
                     </div>
                   ) : (
                     (() => {
-                      const isCurrencyActive = (coin: any): boolean => {
-                        return (
-                          coin?.coin_status === "active" ||
-                          coin?.status === true ||
-                          coin?.status === "active" ||
-                          coin?.isActive === true
-                        )
-                      }
-
-                      const isNativeCurrency = (coin: any): boolean => {
-                        const tokenType = String(coin?.token_type || "").toLowerCase()
-                        return tokenType === "native" || coin?.type === "native"
-                      }
-
-                      const isStellarNetworkCurrency = (coin: any): boolean => {
-                        try {
-                          const rawNetworks = typeof coin?.networks === "string"
-                            ? JSON.parse(coin.networks || "[]")
-                            : (coin?.networks || [])
-                          if (!Array.isArray(rawNetworks)) return false
-                          return rawNetworks.some((entry: any) => {
-                            const network = String(entry?.network || "").toUpperCase()
-                            return network === "STELLAR"
-                          })
-                        } catch {
-                          return false
-                        }
-                      }
-
-                      const normalizeNetwork = (value: string): string =>
-                        value.toUpperCase().replace(/[\s_-]/g, "")
-
-                      const getEvmNetworkAliases = (networkName: string): string[] => {
-                        const normalized = normalizeNetwork(networkName)
-                        if (normalized === "BSC") return ["BSC", "BNB", "BINANCESMARTCHAIN"]
-                        if (normalized === "CELO") return ["CELO"]
-                        if (normalized === "ETHEREUM") return ["ETHEREUM", "ETH"]
-                        if (normalized === "POLYGON") return ["POLYGON", "MATIC"]
-                        return [normalized]
-                      }
-
-                      const hasNetworkOption = (coin: any, targetNetworks: string[]): boolean => {
-                        try {
-                          const rawNetworks = typeof coin?.networks === "string"
-                            ? JSON.parse(coin.networks || "[]")
-                            : (coin?.networks || [])
-                          if (!Array.isArray(rawNetworks)) return false
-                          const targets = targetNetworks.map(normalizeNetwork)
-                          return rawNetworks.some((entry: any) => {
-                            const network = normalizeNetwork(String(entry?.network || ""))
-                            const label = normalizeNetwork(String(entry?.label || ""))
-                            return targets.includes(network) || targets.includes(label)
-                          })
-                        } catch {
-                          return false
-                        }
-                      }
-
                       const currentEvmNetwork = chain ? getNetworkName(chain.chainId as number).toUpperCase() : ""
+                      const nativeSym = chain ? getNativeSymbolForChain(chain.chainId as number) : undefined
 
-                      const filteredAssets = (currencies || []).filter((coin: any) => {
-                        if (!isCurrencyActive(coin)) return false
-                        if (!isNativeCurrency(coin)) return false
-
-                        if (walletType === 'stellar') {
-                          if (!isStellarNetworkCurrency(coin)) return false
-                        } else if (currentEvmNetwork) {
-                          const aliases = getEvmNetworkAliases(currentEvmNetwork)
-                          if (!hasNetworkOption(coin, aliases)) return false
-                        }
-
-                        return true
-                      })
-
-                      const resolveWalletBalance = (asset: any): string => {
-                        if (walletType === 'stellar') {
-                          if (asset.symbol === 'USDC') return String(usdcStellarBalance)
-                          if (asset.symbol === 'XLM') return String(stellarBalance)
-                          return '0.00'
-                        }
-
-                        if (chain && address) {
-                          const nativeSymbol = getNativeSymbolForChain(chain.chainId)
-                          const isNative = asset.symbol?.toUpperCase() === nativeSymbol?.toUpperCase()
-                          if (isNative && nativeBalance?.displayValue != null) {
-                            return nativeBalance.displayValue
-                          }
-
-                          const tokenBalance = supportedTokens.find(
-                            t => t.symbol?.toLowerCase() === asset.symbol?.toLowerCase()
-                          )
-                          return String(tokenBalance?.balanceFormatted ?? tokenBalance?.balance ?? '0.00')
-                        }
-
-                        return '0.00'
-                      }
-
-                      const walletMatchedAssets = filteredAssets
-                        .map((asset) => {
-                          const walletBalanceFormatted = resolveWalletBalance(asset)
-                          const walletBalance = Number.parseFloat(walletBalanceFormatted)
-                          return {
-                            ...asset,
-                            walletBalanceFormatted,
-                            walletBalance: Number.isFinite(walletBalance) ? walletBalance : 0,
-                          }
-                        })
+                      const walletMatchedAssets = compareNativeCurrenciesWithWallet(
+                        currencies || [],
+                        {
+                          tokenBalances,
+                          nativeBalance: nativeBalance ?? undefined,
+                          stellarBalance,
+                          usdcStellarBalance,
+                        },
+                        {
+                          walletType,
+                          chainId: chain?.chainId as number | undefined,
+                          networkName: currentEvmNetwork || undefined,
+                          nativeSymbol: nativeSym || undefined,
+                        },
+                      )
 
                       if (walletMatchedAssets.length === 0) {
                         return (
@@ -2027,13 +2154,13 @@ export function ThirdwebWalletInterface() {
                                 <WalletIcon className="h-6 w-6 text-gray-400" />
                               </div>
                               <div>
-                                <p className="font-medium text-gray-900">No supported assets</p>
+                                <p className="font-medium text-gray-900">No coins found on wallet {JSON.stringify(compareNativeCurrenciesWithWallet)}</p>
                                 <p className="text-sm text-gray-600">
                                   {walletType === 'stellar'
-                                    ? 'No active currencies found with STELLAR network support'
+                                    ? 'No native currencies with balance found on your Stellar wallet'
                                     : currentEvmNetwork
-                                    ? `No active native currencies found for ${currentEvmNetwork} network`
-                                    : 'No active native currencies found'}
+                                    ? `No native currencies with balance found for ${currentEvmNetwork} network`
+                                    : 'No native currencies with balance found'}
                                 </p>
                               </div>
                             </div>
@@ -2041,14 +2168,15 @@ export function ThirdwebWalletInterface() {
                         )
                       }
 
-                      return walletMatchedAssets.map((asset, index) => {
-                        const balance = asset.walletBalanceFormatted
-                        const localFlagIcon = getCurrencyFlagIcon(asset.symbol)
+                      return walletMatchedAssets.map((matched, index) => {
+                        const asset = matched.currency
+                        const balance = matched.balanceFormatted
+                        const localFlagIcon = getCurrencyFlagIcon(matched.symbol)
                         const fallbackIcon = getAssetIconFallback(asset)
 
                         return (
                           <div
-                            key={`${asset.symbol}-${index}`}
+                            key={`${matched.symbol}-${index}`}
                             className={`p-4 flex items-center justify-between bg-gray-50 ${
                               index !== walletMatchedAssets.length - 1 ? "border-b border-gray-100" : ""
                             }`}
@@ -2060,7 +2188,7 @@ export function ThirdwebWalletInterface() {
                                   {localFlagIcon || fallbackIcon ? (
                                     <img
                                       src={localFlagIcon || fallbackIcon || ""}
-                                      alt={asset.token_name || asset.name || asset.symbol}
+                                      alt={matched.name}
                                       className="w-6 h-6 rounded-full"
                                       onError={(e) => {
                                         if (fallbackIcon && e.currentTarget.src !== fallbackIcon) {
@@ -2074,21 +2202,18 @@ export function ThirdwebWalletInterface() {
                                 <span className={`text-xs font-bold ${
                                   (asset.token_type === 'Native' || asset.type === 'native') ? 'text-blue-600' : 'text-green-600'
                                 }`}>
-                                  {asset.symbol?.slice(0, 2).toUpperCase() || '--'}
+                                  {matched.symbol?.slice(0, 2).toUpperCase() || '--'}
                                 </span>
                               )}
                             </div>
                             <div>
-                                  <p className="font-medium text-gray-900">{asset.token_name || asset.name || asset.symbol}</p>
-                              <p className="text-sm text-gray-600">
-                                {`${balance} ${asset.symbol}`}
-                              </p>
+                              <p className="font-medium text-gray-900">{balance} {matched.name}</p>
                               {generalExchangeRates.length > 0 && (() => {
-                                const rate = generalExchangeRates.find((r: any) => r.price?.base_coin === asset.symbol && r.price?.quote_coin === selectedCurrency)
+                                const rate = generalExchangeRates.find((r: any) => r.price?.base_coin === matched.symbol && r.price?.quote_coin === selectedCurrency)
                                 const price = rate ? Number(rate.price?.marketcap_amount) : null
                                 return price != null ? (
                                   <p className="text-xs text-gray-500 mt-0.5">
-                                    1 {asset.symbol} = {formatFiatExchangeRate(price)} {selectedCurrency}
+                                    1 {matched.symbol} = {formatFiatExchangeRate(price)} {selectedCurrency}
                                   </p>
                                 ) : null
                               })()}
@@ -2098,7 +2223,7 @@ export function ThirdwebWalletInterface() {
                             <p className="font-medium text-gray-900">
                               {exchangeAmount(
                                 balance,
-                                asset.symbol,
+                                matched.symbol,
                                 selectedCurrency
                               ) || '0.00'} {selectedCurrency}
                             </p>
@@ -2112,8 +2237,11 @@ export function ThirdwebWalletInterface() {
               </div>
             )}
 
-   
-            {/* Recent Transactions section */}
+            {/* Inline Notifications */}
+            <WalletNotifications />
+
+            {/* Recent Transactions section - hidden when notifications are active */}
+            {!hasActiveNotifications && (
             <div>
               <div className="px-0 py-2">
                 <h3 className="text-md font-bold text-gray-500 mb-1">Recent Transactions</h3>
@@ -2132,11 +2260,12 @@ export function ThirdwebWalletInterface() {
                     </div>
                   </div>
                 ) : walletActivity.length > 0 ? (
-                  walletActivity.slice(0, 4).map((item, index) => (
+                  <>
+                  {walletActivity.slice(0, overviewTxVisible).map((item, index) => (
                     <div
                       key={`${item.id}-${index}`}
                       className={`p-4 flex items-center justify-between bg-gray-50 ${
-                        index !== Math.min(walletActivity.length, 4) - 1 ? "border-b border-gray-100" : ""
+                        index !== Math.min(walletActivity.length, overviewTxVisible) - 1 ? "border-b border-gray-100" : ""
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -2157,12 +2286,18 @@ export function ThirdwebWalletInterface() {
                               {item.type === "receive" ? "+" : "-"}
                               {item.amount.toFixed(6)} {item.asset}
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
                             </div>
                             </div>
                           </div>
-                  ))
+                  ))}
+                  {walletActivity.length > overviewTxVisible && (
+                    <div ref={overviewTxLoadMoreRef} className="p-3 bg-gray-50 border-t border-gray-100 text-center text-sm text-gray-500">
+                      Scroll to load more
+                    </div>
+                  )}
+                  </>
                 ) : (
                   <div className="p-8 text-center bg-gray-50 py-10">
                     <div className="flex flex-col items-center gap-3">
@@ -2178,6 +2313,7 @@ export function ThirdwebWalletInterface() {
                 )}
               </div>
             </div>
+            )}
 
 
 
@@ -2216,11 +2352,11 @@ export function ThirdwebWalletInterface() {
                   </div>
                 ) : walletActivity.length > 0 ? (
                   <>
-                  {walletActivity.map((item, index) => (
+                  {walletActivity.slice(0, txTabVisible).map((item, index) => (
                     <div
                       key={`${item.id}-${index}`}
                       className={`p-4 flex items-center justify-between bg-gray-50 ${
-                        index !== walletActivity.length - 1 ? "border-b border-gray-100" : ""
+                        index !== Math.min(walletActivity.length, txTabVisible) - 1 ? "border-b border-gray-100" : ""
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -2241,13 +2377,13 @@ export function ThirdwebWalletInterface() {
                               {item.type === "receive" ? "+" : "-"}
                               {item.amount.toFixed(6)} {item.asset}
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
                             </div>
                             </div>
                           </div>
                         ))}
-                        {walletActivityHasMore && (
+                        {(walletActivity.length > txTabVisible || walletActivityHasMore) && (
                           <div className="p-4 bg-gray-50 border-t border-gray-100" ref={transactionsLoadMoreRef}>
                             <div className="text-center text-sm text-gray-600">
                               {walletActivityLoadingMore ? "Loading more transactions..." : "Scroll to load more"}
@@ -2272,191 +2408,13 @@ export function ThirdwebWalletInterface() {
             </div>
           </TabsContent>
 
-          <TabsContent value="activity" className="mt-6">
-            {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? (
-              <>
-                {/* On-chain Activity Statistics */}
-                <div className="mb-4">
-                  <div className="px-6 py-2">
-                    <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Statistics</h3>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 px-6 mb-4">
-                    <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
-                      <div className="flex items-center gap-2 mb-1">
-                        <ArrowUpIcon className="h-4 w-4 text-blue-600" />
-                        <p className="text-xs text-gray-600">Total Sent</p>
-                      </div>
-                      <p className="text-xl font-bold text-blue-600">{totalSentActivity.toFixed(6)}</p>
-                      <p className="text-xs text-gray-600">{walletActivity[0]?.asset || "--"}</p>
-                    </div>
-                    <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
-                      <div className="flex items-center gap-2 mb-1">
-                        <ArrowDownIcon className="h-4 w-4 text-green-600" />
-                        <p className="text-xs text-gray-600">Total Received</p>
-                      </div>
-                      <p className="text-xl font-bold text-green-600">{totalReceivedActivity.toFixed(6)}</p>
-                      <p className="text-xs text-gray-600">{walletActivity[0]?.asset || "--"}</p>
-                    </div>
-                  </div>
-
-                  <div className="px-6">
-                    <Card className="bg-white border-gray-200 shadow-sm">
-                      <CardContent className="p-4">
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">Transactions</span>
-                            <span className="font-semibold text-gray-900">{walletActivity.length}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">Average Transaction</span>
-                            <span className="font-semibold text-gray-900">{averageActivity.toFixed(6)}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">Network</span>
-                            <span className="font-semibold text-gray-900">{walletType === "stellar" ? "Stellar" : getNetworkName(chain ? (chain.chainId as number) : undefined)}</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-
-            {/* Wallet Status */}
-            <div className="mb-4">
-              <div className="px-6 py-2">
-                <h3 className="text-xl font-bold text-gray-900 mb-3">Wallet Status</h3>
-              </div>
-              <div className="px-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <LinkIcon className="h-4 w-4 text-green-500" />
-                      <div>
-                        <p className="font-medium text-gray-900">Wallet Connected</p>
-                        <p className="text-sm text-gray-600">
-                          {walletType === 'stellar' && stellarAddress
-                            ? `${stellarAddress.slice(0, 6)}...${stellarAddress.slice(-4)}`
-                            : isConnected && address
-                            ? `${address.slice(0, 6)}...${address.slice(-4)}`
-                            : "Not connected"}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge
-                      className={
-                        (isConnected && address) || (walletType === 'stellar' && stellarAddress)
-                          ? "bg-green-50 text-green-700 border-green-200"
-                          : "bg-gray-50 text-gray-700 border-gray-200"
-                      }
-                    >
-                      {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <GlobeIcon className="h-4 w-4 text-purple-500" />
-                      <div>
-                        <p className="font-medium text-gray-900">Network</p>
-                        <p className="text-sm text-gray-600">
-                          {walletType === 'stellar' 
-                            ? 'Stellar'
-                            : getNetworkName(chain ? (chain.chainId as number) : undefined)}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge className="bg-purple-50 text-purple-700 border-purple-200">Active</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <TrendingUpIcon className="h-4 w-4 text-blue-500" />
-                      <div>
-                        <p className="font-medium text-gray-900">Portfolio Performance</p>
-                        <p className="text-sm text-gray-600">--</p>
-                      </div>
-                    </div>
-                    <Badge className="bg-blue-50 text-blue-700 border-blue-200">Tracking</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <RefreshCwIcon className="h-4 w-4 text-orange-500" />
-                      <div>
-                        <p className="font-medium text-gray-900">Auto-Sync</p>
-                        <p className="text-sm text-gray-600">--</p>
-                      </div>
-                    </div>
-                    <Badge className="bg-orange-50 text-orange-700 border-orange-200">Enabled</Badge>
-                  </div>
-                </div>
-              </div>
-            </div>
-              </>
-            ) : (
-              <div className="p-8 text-center bg-gray-50 py-10">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
-                    <UserIcon className="h-8 w-8 text-gray-400" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900 mb-2">Connect Wallet to View Activity</p>
-                    <p className="text-sm text-gray-600 mb-4">Connect your wallet to see transaction statistics and activity</p>
-                    <Button
-                      onClick={() => setShowWalletModal(true)}
-                      className="bg-[#19B17A] hover:bg-[#158f68] text-white px-6 py-2"
-                    >
-                      Connect Wallet
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
+          <TabsContent value="notifications" className="mt-6">
+            <NotificationsPanel />
           </TabsContent>
         </Tabs> )}
 
 
 
-
-        {/* Footer Navigation Bar */}
-        <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-100 shadow-2xl px-8 h-[60px]">
-          <div className="flex items-center justify-between relative h-full">
-            {/* Home Button */}
-            <Button
-              variant="ghost"
-              className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
-              onClick={() => {
-                setActiveTab("overview")
-                setShowTransactionForms(false)
-              }}
-            >
-              <HomeIcon className="h-6 w-6" />
-              <span className="text-xs font-medium">Home</span>
-            </Button>
-
-            <Button
-              className="flex flex-col items-center gap-1 h-16 w-16 rounded-full bg-gradient-to-r from-[#19B17A] to-[#15a06b] hover:from-[#158f68] hover:to-[#138f5f] text-white cursor-pointer -mt-10 shadow-lg shadow-green-200 transition-all duration-200 hover:shadow-xl hover:shadow-green-300 hover:scale-105"
-              onClick={() => setShowTransactionForms(true)}
-            >
-              <SendIcon className="h-6 w-6" />
-              <span className="text-xs font-medium">Send</span>
-            </Button>
-
-            {/* Activities Button */}
-            <Button
-              variant="ghost"
-              className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
-              onClick={() => {
-                setActiveTab("activity")
-                setShowTransactionForms(false)
-              }}
-            >
-              <ActivityIcon className="h-6 w-6" />
-              <span className="text-xs font-medium">Activities</span>
-            </Button>
-            </div>
-          </div>
 
         {/* Wallet Connection Modal */}
         {showWalletModal && (
@@ -2466,8 +2424,8 @@ export function ThirdwebWalletInterface() {
                 <h2 className="text-xl font-bold text-gray-900">Connect Wallet</h2>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 hover:bg-gray-100"
+                  size="icon"
+                  className="h-8 w-8 p-0 rounded-full bg-red-100 hover:bg-red-200 text-red-700 flex items-center justify-center"
                   onClick={() => setShowWalletModal(false)}
                 >
                   <XIcon className="h-4 w-4" />
@@ -2475,7 +2433,7 @@ export function ThirdwebWalletInterface() {
               </div>
 
               <div className="p-6 space-y-4">
-                <p className="text-sm text-gray-600 mb-6">Choose your preferred wallet to connect</p>
+                <p className="text-sm text-gray-600 mb-6">Choose your preferred wallet to connect 33</p>
                 
                 {/* Thirdweb Button */}
                 <div className="space-y-3">
@@ -2493,7 +2451,7 @@ export function ThirdwebWalletInterface() {
                     }}
                   >
                     <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                      <WalletIcon className="h-5 w-5 text-blue-600" />
+                      <img src="/extra/evm.svg" alt="Evm" className="h-5 w-5" />
                     </div>
                     <div className="text-left">
                       <p className="font-semibold text-gray-900">Connect EVM Wallet</p>
@@ -2522,7 +2480,7 @@ export function ThirdwebWalletInterface() {
                   {stellarKit && (  // request to connect stellar wallet
                     <Button
                       variant="outline"
-                      className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 transition-all duration-200 bg-transparent"
+                      className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#6EBE44] hover:bg-green-50 transition-all duration-200 bg-transparent"
                       onClick={async () => {
                         try {
                           // Show initial loading state
@@ -2550,9 +2508,6 @@ export function ThirdwebWalletInterface() {
                                   setStellarAddress(addressResponse.address)
                                   setWalletType('stellar')
                                   fetchStellarBalance(addressResponse.address)
-                                  
-                                  // Set CELO balance for Stellar wallet connection too
-                                  fetchCeloBalance(addressResponse.address)
                                   
                                   // Store in localStorage for persistence
                                   localStorage.setItem('peerpesa_wallet_type', 'stellar')
@@ -2588,7 +2543,7 @@ export function ThirdwebWalletInterface() {
                       }}
                     >
                       <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <WalletIcon className="h-5 w-5 text-blue-600" />
+                        <img src="/extra/stellar.svg" alt="Stellar" className="h-5 w-5" />
                       </div>
                       <div className="text-left">
                         <p className="font-semibold text-gray-900">Connect Stellar Wallet</p>
@@ -2607,6 +2562,48 @@ export function ThirdwebWalletInterface() {
             </div>
           </div>
         )}
+
+        {/* Fixed Bottom Navigation */}
+        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 z-50 w-full max-w-md bg-white border-t border-gray-200 rounded-t-xl shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+          <div className="flex items-end justify-around px-6 pt-2 pb-[env(safe-area-inset-bottom,8px)]">
+            {/* Home */}
+            <button
+              onClick={() => { setActiveTab("overview"); setShowTransactionForms(false) }}
+              className="flex flex-col items-center gap-0.5 py-1 min-w-[64px] cursor-pointer"
+            >
+              <HomeIcon className={`h-5 w-5 ${activeTab === "overview" && !showTransactionForms ? "text-[#5ea838]" : "text-gray-400"}`} />
+              <span className={`text-[11px] ${activeTab === "overview" && !showTransactionForms ? "text-[#5ea838] font-semibold" : "text-gray-500"}`}>Home</span>
+            </button>
+
+            {/* Send - raised green circle */}
+            <button
+              onClick={() => { setTransactionType("send"); setShowTransactionForms(true) }}
+              className="flex flex-col items-center -mt-6 cursor-pointer"
+            >
+              <div className="h-14 w-14 rounded-full bg-[#5ea838] flex items-center justify-center shadow-lg">
+                <SendIcon className="h-5 w-5 text-white" />
+              </div>
+              <span className="text-[11px] text-[#5ea838] font-semibold mt-0.5">Send</span>
+            </button>
+
+            {/* Notifications */}
+            <button
+              onClick={() => { setActiveTab("notifications"); setShowTransactionForms(false) }}
+              className="flex flex-col items-center gap-0.5 py-1 min-w-[64px] cursor-pointer relative"
+            >
+              <BellIcon className={`h-5 w-5 ${activeTab === "notifications" && !showTransactionForms ? "text-[#5ea838]" : "text-gray-400"}`} />
+              {notificationCount > 0 && (
+                <span className="absolute -top-0.5 right-2 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              )}
+              <span className={`text-[11px] ${activeTab === "notifications" && !showTransactionForms ? "text-[#5ea838] font-semibold" : "text-gray-500"}`}>Notifications</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Bottom nav spacer */}
+        <div className="h-20" />
       </div>
     </div>
   )

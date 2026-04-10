@@ -1,4 +1,73 @@
 /**
+ * Channel interfaces
+ */
+export interface Channel {
+  id?: string
+  name: string
+  network: string
+  rampType: string // 'withdraw', etc.
+  channelType: string // 'bank', 'mobile', etc.
+  currency: string
+  status: string | boolean
+  minAmount?: number
+  maxAmount?: number
+  [key: string]: any
+}
+
+export interface ChannelsResponse {
+  data?: Channel[]
+  channels?: Channel[]
+  success?: boolean
+  message?: string
+}
+
+/**
+ * Fetch withdraw channels based on filter and currency
+ * @param rampType - Ramp type ('withdraw')
+ * @param channelType - Channel type ('bank' | 'mobile')
+ * @param currency - Currency code (e.g., 'UGX', 'KES')
+ * @param status - Channel status ('active')
+ * @returns Promise with channels array
+ */
+export async function fetchWithdrawChannels({
+  rampType = 'withdraw',
+  channelType = '',
+  currency = '',
+  status = 'active',
+}: {
+  rampType?: string
+  channelType?: string
+  currency?: string
+  status?: string
+}): Promise<Channel[]> {
+  try {
+    const params: Record<string, string> = {
+      rampType,
+      channelType,
+      currency,
+      status,
+    }
+    // Remove empty params
+    Object.keys(params).forEach((k) => {
+      if (!params[k]) delete params[k]
+    })
+    const response = await apiGet<ChannelsResponse>('/dapp/system/withdraw/channels', params)
+    if (Array.isArray(response)) {
+      return response
+    } else if (response.data && Array.isArray(response.data)) {
+      return response.data
+    } else if (response.channels && Array.isArray(response.channels)) {
+      return response.channels
+    } else {
+      console.warn('Unexpected channels response format:', response)
+      return []
+    }
+  } catch (error) {
+    console.error('Error fetching withdraw channels:', error)
+    return []
+  }
+}
+/**
  * API utility functions for PeerPesa
  * Centralized API calls with base URL configuration
  */

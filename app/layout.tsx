@@ -9,11 +9,12 @@ import { GlobalErrorHandler } from "@/components/global-error-handler"
 import { SettingsProvider } from "@/contexts/SettingsContext"
 import { TransactionProvider } from "@/contexts/TransactionContext"
 import { CurrencyProvider } from "@/contexts/CurrencyContext"
+import { ChannelProvider } from "@/contexts/ChannelContext"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "PeerPesa Wallet",
-  description: "Mobile crypto wallet for CELO and multi-currency transactions",
+  title: "PeerPesa Pay",
+  description: "Instant, low cost, borderless payments across Africa",
   generator: "v0.app",
   icons: {
     icon: "/favicon.ico",
@@ -27,14 +28,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
+      <body suppressHydrationWarning className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <GlobalErrorHandler>
           <ThirdwebProviderWrapper>
             <SettingsProvider>
               <CurrencyProvider>
                 <TransactionProvider>
-                  <Suspense fallback={null}>{children}</Suspense>
-                  <Analytics />
+                  <ChannelProvider>
+                    <Suspense fallback={null}>{children}</Suspense>
+                    <Analytics />
+                  </ChannelProvider>
                 </TransactionProvider>
               </CurrencyProvider>
             </SettingsProvider>

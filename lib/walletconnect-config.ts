@@ -6,7 +6,7 @@ export const WALLETCONNECT_CONFIG = {
     name: "PeerPesa",
     description: "Move money across borders effortlessly straight to mobile wallets and bank accounts with our blockchain-powered technology.",
     url: "https://pay.peerpesa.co",
-    icons: ["https://pay.peerpesa.co/images/peerpesa-logo.png", "https://peerpesa.co/uploads/d736ef5a-1d0b-4873-9626-415d2c26a76c.png"],
+    icons: ["https://pay.peerpesa.co/images/peerpesa.png", "https://peerpesa.co/uploads/d736ef5a-1d0b-4873-9626-415d2c26a76c.png"],
   },
   chains: [
     1,        // Ethereum mainnet
