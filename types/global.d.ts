@@ -1,3 +1,4 @@
+declare module '*.css';
 declare global {
   interface Window {
     Buffer?: typeof Buffer
