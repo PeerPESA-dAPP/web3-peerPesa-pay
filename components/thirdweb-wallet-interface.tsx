@@ -67,8 +67,9 @@ import {
   SendIcon,
   RefreshCwIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
   HomeIcon,
-  ActivityIcon,
+  BellIcon,
   GlobeIcon,
   XIcon,
 } from "lucide-react"
@@ -165,6 +166,8 @@ export function ThirdwebWalletInterface() {
     refetch: refetchCurrencies
   } = useCurrency()
   const [showTransactionForms, setShowTransactionForms] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
+  const [notificationLimit, setNotificationLimit] = useState(8)
   const [activeFormService, setActiveFormService] = useState("send")
   const [transactionType, setTransactionType] = useState<"send" | "buy" | "swap">("send")
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
@@ -695,6 +698,10 @@ export function ThirdwebWalletInterface() {
   // Sync connection status with toast notifications and fetch CELO balance
   useEffect(() => {
     if (isConnected && address) {
+      if (!(walletType === 'stellar' && stellarAddress)) {
+        setWalletType('evm')
+      }
+
       toast({
         title: "Wallet Connected",
         description: `Connected to ${address.slice(0, 6)}...${address.slice(-4)}`,
@@ -708,7 +715,7 @@ export function ThirdwebWalletInterface() {
       setCeloBalance(0.00)
       setUsdValue(0.00)
     }
-  }, [isConnected, address, walletType])
+  }, [isConnected, address, stellarAddress, walletType])
 
   // Handle Stellar wallet balance updates
   useEffect(() => {
@@ -756,6 +763,11 @@ export function ThirdwebWalletInterface() {
   const handleDisconnect = async () => {
     try {
       await disconnect()
+
+      // Clear wallet type if Stellar is not connected.
+      if (!stellarAddress) {
+        setWalletType(null)
+      }
       
       // Only reset CELO balance if no Stellar wallet is connected
       if (walletType !== 'stellar' || !stellarAddress) {
@@ -1330,8 +1342,8 @@ export function ThirdwebWalletInterface() {
                     
                     {/* Settings Dropdown */}
                     {showSettingsDropdown && (
-                      <div className="fixed left-1/2 transform -translate-x-1/2 mt-2 w-[90%] max-w-[calc(28rem*0.9)] bg-white rounded-lg shadow-xl border border-gray-200 z-50">
-                        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                      <div className="fixed left-1/2 transform -translate-x-1/2 mt-2 w-[90%] max-w-[calc(28rem*0.9)] bg-white rounded-lg shadow-xl border border-gray-200 z-50 flex flex-col max-h-[80vh]">
+                        <div className="p-4 border-b border-gray-200 flex items-center justify-between shrink-0">
                           <h3 className="text-lg font-semibold text-gray-900">
                             {walletType === 'stellar' ? 'Stellar Wallet' : 'EVM Wallet'}
                           </h3>
@@ -1344,7 +1356,7 @@ export function ThirdwebWalletInterface() {
                             <XIcon className="h-4 w-4" />
                   </Button>
                         </div>
-                        <div className="p-4 max-h-96 overflow-y-auto">
+                        <div className="p-4 overflow-y-auto flex-1">
                           <div className="space-y-3">
                             <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                               <div className="flex items-center gap-3">
@@ -1541,24 +1553,25 @@ export function ThirdwebWalletInterface() {
                               </div>
                               <Badge className="bg-orange-50 text-orange-700 border-orange-200">Enabled</Badge>
                             </div>
-
-                            {/* Disconnect Button */}
+                          </div>
+                        </div>
+                        {/* Disconnect Button - Fixed at bottom */}
+                        <div className="p-4 border-t border-gray-200 shrink-0">
                             <Button
                               variant="outline"
                               size="sm"
-                              className="w-full mt-3 border-red-200 text-red-600 hover:bg-red-50"
-                              onClick={() => {
+                              className="w-full border-red-200 text-red-600 hover:bg-red-50"
+                              onClick={async () => {
                                 if (walletType === 'stellar') {
                                   disconnectStellarWallet()
-                                } else if (isConnected && address) {
-                                  handleDisconnect()
+                                } else if (isConnected) {
+                                  await handleDisconnect()
                                 }
                                 setShowSettingsDropdown(false)
                               }}
                             >
                               Disconnect Wallet
                             </Button>
-                          </div>
                         </div>
                       </div>
                     )}
@@ -1791,7 +1804,7 @@ export function ThirdwebWalletInterface() {
               </CardContent>
             </Card>
            {! showTransactionForms && (
-              <div className="grid grid-cols-3 gap-3 mb-6">
+              <div className="grid grid-cols-3 gap-3 mb-6 sticky top-16 z-10 bg-white pt-2 pb-2">
                 <Button
                   variant="outline"
                   className="h-12 flex flex-col items-center justify-center gap-1 bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black cursor-pointer"
@@ -1837,6 +1850,92 @@ export function ThirdwebWalletInterface() {
 
         
 
+      {/* Notifications View */}
+      {showNotifications && (() => {
+        const notificationsData = [
+          {
+            date: new Date().toISOString().slice(0, 10),
+            items: [
+              { id: 1, title: "Deposit received", description: "You received 0.5 ETH.", time: "09:30" },
+              { id: 2, title: "Withdrawal processed", description: "Your withdrawal to bank was successful.", time: "08:15" },
+              { id: 4, title: "Rate alert", description: "ETH/USD rate changed significantly.", time: "07:00" },
+              { id: 5, title: "Transfer complete", description: "Your transfer of 100 USDT was completed.", time: "06:45" },
+              { id: 6, title: "Security alert", description: "New login detected from your account.", time: "05:30" },
+              { id: 7, title: "Promo available", description: "Get 0% fees on your next transaction.", time: "04:15" },
+            ],
+          },
+          {
+            date: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
+            items: [
+              { id: 3, title: "New offer available", description: "Check out the latest rates.", time: "17:40" },
+              { id: 8, title: "Deposit confirmed", description: "Your deposit of 1 ETH was confirmed.", time: "14:20" },
+              { id: 9, title: "Swap completed", description: "Swapped 0.5 ETH to 900 USDT.", time: "12:00" },
+              { id: 10, title: "Withdrawal initiated", description: "Withdrawal of 200 USDT initiated.", time: "10:30" },
+            ],
+          },
+          {
+            date: new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10),
+            items: [
+              { id: 11, title: "KYC approved", description: "Your identity verification was approved.", time: "16:00" },
+              { id: 12, title: "New feature", description: "Try our new swap feature with lower fees.", time: "09:00" },
+            ],
+          },
+        ]
+        // Flatten all notifications and apply limit
+        const allItems = notificationsData.flatMap((group) => group.items.map((item) => ({ ...item, date: group.date })))
+        const visibleItems = allItems.slice(0, notificationLimit)
+        const hasMore = allItems.length > notificationLimit
+        // Re-group visible items by date
+        const groupedVisible = visibleItems.reduce<Record<string, typeof visibleItems>>((acc, item) => {
+          if (!acc[item.date]) acc[item.date] = []
+          acc[item.date].push(item)
+          return acc
+        }, {})
+        return (
+        <div className="px-6 py-8 pb-24">
+          <div className="flex items-center mb-6">
+            <Button variant="ghost" size="sm" className="mr-2 cursor-pointer" onClick={() => { setShowNotifications(false); setNotificationLimit(8) }}>
+              <ChevronLeftIcon className="h-5 w-5" />
+            </Button>
+            <h2 className="text-xl font-bold text-left flex-1">Notifications</h2>
+          </div>
+          {Object.entries(groupedVisible).map(([date, items]) => {
+            const today = new Date()
+            const d = new Date(date)
+            const label =
+              d.getFullYear() === today.getFullYear() &&
+              d.getMonth() === today.getMonth() &&
+              d.getDate() === today.getDate()
+                ? "Today"
+                : d.toLocaleDateString()
+            return (
+              <div key={date} className="mb-6">
+                <div className="text-xs font-semibold text-gray-500 mb-2 pl-1">{label}</div>
+                <div className="space-y-2">
+                  {items.map((notif) => (
+                    <div key={notif.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium text-gray-900">{notif.title}</div>
+                        <div className="text-xs text-gray-400">{notif.time}</div>
+                      </div>
+                      <div className="text-sm text-gray-600">{notif.description}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+          {hasMore && (
+            <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md px-6 pb-4 pt-2 bg-white border-t border-gray-100">
+              <Button className="w-full bg-[#19B17A] hover:bg-[#158f68] text-white cursor-pointer" onClick={() => setNotificationLimit((prev) => prev + 8)}>
+                Load More
+              </Button>
+            </div>
+          )}
+        </div>
+        )
+      })()}
+
       {/* Transaction Forms Modal */}
       {showTransactionForms && (
         <TransactionForms
@@ -1864,9 +1963,9 @@ export function ThirdwebWalletInterface() {
         
 
             {/* Tabs */}
-       {!showTransactionForms && (
+       {!showTransactionForms && !showNotifications && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
-          <TabsList className="grid w-full grid-cols-3 bg-gray-100">
+          <TabsList className="grid w-full grid-cols-2 bg-gray-100">
             <TabsTrigger
               value="overview"
               className="data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=inactive]:text-black hover:text-black cursor-pointer"
@@ -1878,12 +1977,6 @@ export function ThirdwebWalletInterface() {
               className="data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=inactive]:text-black hover:text-black cursor-pointer"
             >
               Transactions
-                </TabsTrigger>
-            <TabsTrigger
-              value="activity"
-              className="data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=inactive]:text-black hover:text-black cursor-pointer"
-            >
-              Wallet Activity
                 </TabsTrigger>
               </TabsList>
 
@@ -2152,12 +2245,12 @@ export function ThirdwebWalletInterface() {
                           <p className="text-sm text-gray-600">{formatDate(item.timestamp)}</p>
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right flex flex-col items-end">
                         <p className="font-medium text-gray-900">
                               {item.type === "receive" ? "+" : "-"}
                               {item.amount.toFixed(6)} {item.asset}
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
                             </div>
                             </div>
@@ -2236,12 +2329,12 @@ export function ThirdwebWalletInterface() {
                           <p className="text-sm text-gray-600">{formatDate(item.timestamp)}</p>
                             </div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-right flex flex-col items-end">
                         <p className="font-medium text-gray-900">
                               {item.type === "receive" ? "+" : "-"}
                               {item.amount.toFixed(6)} {item.asset}
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
                             </div>
                             </div>
@@ -2272,154 +2365,14 @@ export function ThirdwebWalletInterface() {
             </div>
           </TabsContent>
 
-          <TabsContent value="activity" className="mt-6">
-            {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? (
-              <>
-                {/* On-chain Activity Statistics */}
-                <div className="mb-4">
-                  <div className="px-6 py-2">
-                    <h3 className="text-xl font-bold text-gray-900 mb-3">Transaction Statistics</h3>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-3 px-6 mb-4">
-                    <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
-                      <div className="flex items-center gap-2 mb-1">
-                        <ArrowUpIcon className="h-4 w-4 text-blue-600" />
-                        <p className="text-xs text-gray-600">Total Sent</p>
-                      </div>
-                      <p className="text-xl font-bold text-blue-600">{totalSentActivity.toFixed(6)}</p>
-                      <p className="text-xs text-gray-600">{walletActivity[0]?.asset || "--"}</p>
-                    </div>
-                    <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
-                      <div className="flex items-center gap-2 mb-1">
-                        <ArrowDownIcon className="h-4 w-4 text-green-600" />
-                        <p className="text-xs text-gray-600">Total Received</p>
-                      </div>
-                      <p className="text-xl font-bold text-green-600">{totalReceivedActivity.toFixed(6)}</p>
-                      <p className="text-xs text-gray-600">{walletActivity[0]?.asset || "--"}</p>
-                    </div>
-                  </div>
-
-                  <div className="px-6">
-                    <Card className="bg-white border-gray-200 shadow-sm">
-                      <CardContent className="p-4">
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">Transactions</span>
-                            <span className="font-semibold text-gray-900">{walletActivity.length}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">Average Transaction</span>
-                            <span className="font-semibold text-gray-900">{averageActivity.toFixed(6)}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">Network</span>
-                            <span className="font-semibold text-gray-900">{walletType === "stellar" ? "Stellar" : getNetworkName(chain ? (chain.chainId as number) : undefined)}</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-
-            {/* Wallet Status */}
-            <div className="mb-4">
-              <div className="px-6 py-2">
-                <h3 className="text-xl font-bold text-gray-900 mb-3">Wallet Status</h3>
-              </div>
-              <div className="px-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <LinkIcon className="h-4 w-4 text-green-500" />
-                      <div>
-                        <p className="font-medium text-gray-900">Wallet Connected</p>
-                        <p className="text-sm text-gray-600">
-                          {walletType === 'stellar' && stellarAddress
-                            ? `${stellarAddress.slice(0, 6)}...${stellarAddress.slice(-4)}`
-                            : isConnected && address
-                            ? `${address.slice(0, 6)}...${address.slice(-4)}`
-                            : "Not connected"}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge
-                      className={
-                        (isConnected && address) || (walletType === 'stellar' && stellarAddress)
-                          ? "bg-green-50 text-green-700 border-green-200"
-                          : "bg-gray-50 text-gray-700 border-gray-200"
-                      }
-                    >
-                      {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <GlobeIcon className="h-4 w-4 text-purple-500" />
-                      <div>
-                        <p className="font-medium text-gray-900">Network</p>
-                        <p className="text-sm text-gray-600">
-                          {walletType === 'stellar' 
-                            ? 'Stellar'
-                            : getNetworkName(chain ? (chain.chainId as number) : undefined)}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge className="bg-purple-50 text-purple-700 border-purple-200">Active</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <TrendingUpIcon className="h-4 w-4 text-blue-500" />
-                      <div>
-                        <p className="font-medium text-gray-900">Portfolio Performance</p>
-                        <p className="text-sm text-gray-600">--</p>
-                      </div>
-                    </div>
-                    <Badge className="bg-blue-50 text-blue-700 border-blue-200">Tracking</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <RefreshCwIcon className="h-4 w-4 text-orange-500" />
-                      <div>
-                        <p className="font-medium text-gray-900">Auto-Sync</p>
-                        <p className="text-sm text-gray-600">--</p>
-                      </div>
-                    </div>
-                    <Badge className="bg-orange-50 text-orange-700 border-orange-200">Enabled</Badge>
-                  </div>
-                </div>
-              </div>
-            </div>
-              </>
-            ) : (
-              <div className="p-8 text-center bg-gray-50 py-10">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
-                    <UserIcon className="h-8 w-8 text-gray-400" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900 mb-2">Connect Wallet to View Activity</p>
-                    <p className="text-sm text-gray-600 mb-4">Connect your wallet to see transaction statistics and activity</p>
-                    <Button
-                      onClick={() => setShowWalletModal(true)}
-                      className="bg-[#19B17A] hover:bg-[#158f68] text-white px-6 py-2"
-                    >
-                      Connect Wallet
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </TabsContent>
         </Tabs> )}
 
 
 
 
         {/* Footer Navigation Bar */}
+        {!showNotifications && (
         <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-100 shadow-2xl px-8 h-[60px]">
           <div className="flex items-center justify-between relative h-full">
             {/* Home Button */}
@@ -2429,6 +2382,7 @@ export function ThirdwebWalletInterface() {
               onClick={() => {
                 setActiveTab("overview")
                 setShowTransactionForms(false)
+                setShowNotifications(false)
               }}
             >
               <HomeIcon className="h-6 w-6" />
@@ -2443,20 +2397,21 @@ export function ThirdwebWalletInterface() {
               <span className="text-xs font-medium">Send</span>
             </Button>
 
-            {/* Activities Button */}
+            {/* Notifications Button */}
             <Button
               variant="ghost"
               className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
               onClick={() => {
-                setActiveTab("activity")
+                setShowNotifications(true)
                 setShowTransactionForms(false)
               }}
             >
-              <ActivityIcon className="h-6 w-6" />
-              <span className="text-xs font-medium">Activities</span>
+              <BellIcon className="h-6 w-6" />
+              <span className="text-xs font-medium">Notifications</span>
             </Button>
             </div>
           </div>
+        )}
 
         {/* Wallet Connection Modal */}
         {showWalletModal && (
