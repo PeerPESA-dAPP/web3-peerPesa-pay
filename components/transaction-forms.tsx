@@ -71,7 +71,10 @@ export function TransactionForms({  onBack,
                                  }: TransactionFormsProps) {
   const [activeTab, setActiveTab] = useState(transactionType)
   const [showNotifications, setShowNotifications] = useState(false)
+<<<<<<< HEAD
   const [notificationLimit, setNotificationLimit] = useState(8)
+=======
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
 
   // Dummy notifications data grouped by date
   const notificationsData = [
@@ -80,16 +83,20 @@ export function TransactionForms({  onBack,
       items: [
         { id: 1, title: "Deposit received", description: "You received 0.5 ETH.", time: "09:30" },
         { id: 2, title: "Withdrawal processed", description: "Your withdrawal to bank was successful.", time: "08:15" },
+<<<<<<< HEAD
         { id: 4, title: "Rate alert", description: "ETH/USD rate changed significantly.", time: "07:00" },
         { id: 5, title: "Transfer complete", description: "Your transfer of 100 USDT was completed.", time: "06:45" },
         { id: 6, title: "Security alert", description: "New login detected from your account.", time: "05:30" },
         { id: 7, title: "Promo available", description: "Get 0% fees on your next transaction.", time: "04:15" },
+=======
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
       ],
     },
     {
       date: "2026-04-08",
       items: [
         { id: 3, title: "New offer available", description: "Check out the latest rates.", time: "17:40" },
+<<<<<<< HEAD
         { id: 8, title: "Deposit confirmed", description: "Your deposit of 1 ETH was confirmed.", time: "14:20" },
         { id: 9, title: "Swap completed", description: "Swapped 0.5 ETH to 900 USDT.", time: "12:00" },
         { id: 10, title: "Withdrawal initiated", description: "Withdrawal of 200 USDT initiated.", time: "10:30" },
@@ -100,6 +107,8 @@ export function TransactionForms({  onBack,
       items: [
         { id: 11, title: "KYC approved", description: "Your identity verification was approved.", time: "16:00" },
         { id: 12, title: "New feature", description: "Try our new swap feature with lower fees.", time: "09:00" },
+=======
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
       ],
     },
   ]
@@ -671,6 +680,7 @@ export function TransactionForms({  onBack,
     <div className="max-w-md mx-auto min-h-screen bg-gray-50 pb-7">
       {/* Main Content */}
       <div className="pt-2 px-4 pb-4">
+<<<<<<< HEAD
         {showNotifications ? (() => {
           const allItems = notificationsData.flatMap((group) => group.items.map((item) => ({ ...item, date: group.date })))
           const visibleItems = allItems.slice(0, notificationLimit)
@@ -693,6 +703,16 @@ export function TransactionForms({  onBack,
                 <div className="text-xs font-semibold text-gray-500 mb-2 pl-1">{formatDate(date)}</div>
                 <div className="space-y-2">
                   {items.map((notif) => (
+=======
+        {showNotifications ? (
+          <div className="py-8">
+            <h2 className="text-xl font-bold mb-6 text-center">Notifications</h2>
+            {notificationsData.map((group) => (
+              <div key={group.date} className="mb-6">
+                <div className="text-xs font-semibold text-gray-500 mb-2 pl-1">{formatDate(group.date)}</div>
+                <div className="space-y-2">
+                  {group.items.map((notif) => (
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
                     <div key={notif.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col gap-1">
                       <div className="flex items-center justify-between">
                         <div className="font-medium text-gray-900">{notif.title}</div>
@@ -704,6 +724,7 @@ export function TransactionForms({  onBack,
                 </div>
               </div>
             ))}
+<<<<<<< HEAD
             {hasMore && (
               <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md px-6 pb-4 pt-2 bg-white border-t border-gray-100">
                 <Button className="w-full bg-[#19B17A] hover:bg-[#158f68] text-white cursor-pointer" onClick={() => setNotificationLimit((prev) => prev + 8)}>
@@ -714,6 +735,13 @@ export function TransactionForms({  onBack,
           </div>
           )
         })() : !showReview && (
+=======
+            <Button className="w-full mt-8" variant="outline" onClick={() => setShowNotifications(false)}>
+              Back to Overview
+            </Button>
+          </div>
+        ) : !showReview && (
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
           <div className="grid grid-cols-3 gap-2 mb-2">
             <Button
               variant={activeTab === "send" ? "default" : "outline"}
@@ -1108,6 +1136,37 @@ export function TransactionForms({  onBack,
                       </SelectContent>
                     </Select>
                   </div>
+<<<<<<< HEAD
+=======
+
+                  {/* Network Selection by Payment Mode & Fiat (Send) */}
+                  {activeTab === "send" && (
+                    <div>
+                      <Label className="text-sm text-gray-500 mb-2 block">Network</Label>
+                      <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder={sendNetworksLoading ? "Loading..." : "Select network"} />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white max-h-[300px]">
+                          {sendNetworksLoading ? (
+                            <div className="p-4 text-center text-sm text-gray-500">Loading networks...</div>
+                          ) : sendNetworks.length > 0 ? (
+                            sendNetworks.map((net) => (
+                              <SelectItem key={net.name} value={net.name} className="bg-white hover:bg-gray-50">
+                                <div className="flex items-center gap-2">
+                                  <span>{net.name}</span>
+                                  <span className="text-xs text-gray-400 ml-2">{net.min} - {net.max}</span>
+                                </div>
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <div className="p-4 text-center text-sm text-gray-500">No networks available for selected options</div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
                   
                   {/* Bank Fields */}
                   {paymentMode === "bank" && (
@@ -1685,7 +1744,11 @@ export function TransactionForms({  onBack,
                           </SelectContent>
                         </Select>
                         <p className="text-xs text-gray-400 text-right mt-0.5 pr-1">
+<<<<<<< HEAD
                           {connectWalletBalance ?? 0} {fromCurrency}
+=======
+                          {getBalanceForSymbol(fromCurrency).toFixed(6)} {fromCurrency}
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
                         </p>
                       </div>
                     </div>

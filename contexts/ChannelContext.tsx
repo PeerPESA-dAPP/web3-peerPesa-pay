@@ -1,6 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+<<<<<<< HEAD
 import { API_BASE_URL } from '@/utils/api'
 
 export interface Channel {
@@ -33,14 +34,26 @@ interface FetchChannelsParams {
   currency?: string
   status?: string
 }
+=======
+import { fetchWithdrawChannels, Channel } from '@/utils/api'
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
 
 interface ChannelContextType {
   channels: Channel[]
   channelsLoading: boolean
+<<<<<<< HEAD
   fetchChannels: (params?: FetchChannelsParams) => Promise<void>
   networks: WithdrawNetwork[]
   networksLoading: boolean
   fetchNetworks: () => Promise<void>
+=======
+  fetchChannels: (params: {
+    rampType?: string
+    channelType?: string
+    currency?: string
+    status?: string
+  }) => Promise<void>
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
   error: string | null
 }
 
@@ -53,6 +66,7 @@ interface ChannelProviderProps {
 export function ChannelProvider({ children }: ChannelProviderProps) {
   const [channels, setChannels] = useState<Channel[]>([])
   const [channelsLoading, setChannelsLoading] = useState(false)
+<<<<<<< HEAD
   const [networks, setNetworks] = useState<WithdrawNetwork[]>([])
   const [networksLoading, setNetworksLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,11 +92,35 @@ export function ChannelProvider({ children }: ChannelProviderProps) {
       setError(msg)
       console.error('Error fetching channels:', err)
       setChannels([])
+=======
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchChannels = useCallback(async (params: {
+    rampType?: string
+    channelType?: string
+    currency?: string
+    status?: string
+  }) => {
+    setChannelsLoading(true)
+    setError(null)
+    try {
+      const result = await fetchWithdrawChannels(params)
+      setChannels(result)
+      if (result.length === 0) {
+        console.warn('No channels found for params:', params)
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch channels'
+      setError(errorMessage)
+      setChannels([])
+      console.error('Error fetching channels:', err)
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
     } finally {
       setChannelsLoading(false)
     }
   }, [])
 
+<<<<<<< HEAD
   const fetchNetworks = useCallback(async () => {
     setNetworksLoading(true)
     setError(null)
@@ -103,13 +141,18 @@ export function ChannelProvider({ children }: ChannelProviderProps) {
     }
   }, [])
 
+=======
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
   const value: ChannelContextType = {
     channels,
     channelsLoading,
     fetchChannels,
+<<<<<<< HEAD
     networks,
     networksLoading,
     fetchNetworks,
+=======
+>>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
     error,
   }
 

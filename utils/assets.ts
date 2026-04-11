@@ -317,6 +317,181 @@ export const fetchWalletAssets = async (walletType: 'evm' | 'stellar', address: 
   return []
 }
 
+// ── Compare native currencies from the API with coins on the connected wallet ──
+
+export interface WalletBalanceData {
+  tokenBalances: Record<string, number>
+  nativeBalance?: { displayValue?: string }
+  stellarBalance: number
+  usdcStellarBalance: number
+}
+
+export interface NetworkInfo {
+  walletType: 'evm' | 'stellar' | null
+  chainId?: number
+  networkName?: string
+  nativeSymbol?: string
+}
+
+export interface MatchedCurrency {
+  currency: any
+  balance: number
+  balanceFormatted: string
+  symbol: string
+  name: string
+  hasBalance: boolean
+}
+
+const isCurrencyActive = (coin: any): boolean => {
+  return (
+    coin?.coin_status === 'active' ||
+    coin?.status === true ||
+    coin?.status === 'active' ||
+    coin?.isActive === true
+  )
+}
+
+const isNativeTokenType = (coin: any): boolean => {
+  const tokenType = String(coin?.token_type || '').toLowerCase()
+  return tokenType === 'native' || coin?.type === 'native'
+}
+
+const normalizeNetworkName = (value: string): string =>
+  value.toUpperCase().replace(/[\s_-]/g, '')
+
+const getEvmNetworkAliases = (networkName: string): string[] => {
+  const normalized = normalizeNetworkName(networkName)
+  const aliasMap: Record<string, string[]> = {
+    BSC: ['BSC', 'BNB', 'BINANCESMARTCHAIN'],
+    CELO: ['CELO'],
+    ETHEREUM: ['ETHEREUM', 'ETH'],
+    POLYGON: ['POLYGON', 'MATIC'],
+    ARBITRUM: ['ARBITRUM'],
+    OPTIMISM: ['OPTIMISM'],
+    BASE: ['BASE'],
+    AVALANCHE: ['AVALANCHE', 'AVAX'],
+  }
+  return aliasMap[normalized] || [normalized]
+}
+
+const coinHasNetwork = (coin: any, targetNetworks: string[]): boolean => {
+  try {
+    const rawNetworks = typeof coin?.networks === 'string'
+      ? JSON.parse(coin.networks || '[]')
+      : (coin?.networks || [])
+    if (!Array.isArray(rawNetworks)) return false
+    const targets = targetNetworks.map(normalizeNetworkName)
+    return rawNetworks.some((entry: any) => {
+      const network = normalizeNetworkName(String(entry?.network || ''))
+      const label = normalizeNetworkName(String(entry?.label || ''))
+      return targets.includes(network) || targets.includes(label)
+    })
+  } catch {
+    return false
+  }
+}
+
+const coinHasStellarNetwork = (coin: any): boolean => {
+  try {
+    const rawNetworks = typeof coin?.networks === 'string'
+      ? JSON.parse(coin.networks || '[]')
+      : (coin?.networks || [])
+    if (!Array.isArray(rawNetworks)) return false
+    return rawNetworks.some(
+      (entry: any) => String(entry?.network || '').toUpperCase() === 'STELLAR'
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Compare native currencies from the app currencies API with coins on the connected wallet
+ * using the **symbol** as the matching key.
+ *
+ * For EVM wallets the set of wallet symbols comes from:
+ *   - the chain's native gas token (e.g. CELO, ETH) via nativeBalance
+ *   - every ERC-20 symbol in tokenBalances (already scoped to the current chain)
+ *
+ * For Stellar wallets the wallet symbols are XLM and USDC (when their balances > 0).
+ *
+ * Only currencies whose symbol exists on the wallet AND whose balance > 0 are returned.
+ *
+ * @param currencies  - Raw currency array from the API / CurrencyContext
+ * @param balanceData - Current wallet balance state (ERC-20, native, Stellar)
+ * @param networkInfo - Wallet type and network identifiers
+ * @returns Array of MatchedCurrency objects for coins that exist on the wallet
+ */
+export const compareNativeCurrenciesWithWallet = (
+  currencies: any[],
+  balanceData: WalletBalanceData,
+  networkInfo: NetworkInfo,
+): MatchedCurrency[] => {
+  if (!currencies || currencies.length === 0) return []
+
+  // 1. Build a set of symbols that actually exist on the connected wallet
+  const walletSymbols = new Set<string>()
+
+  if (networkInfo.walletType === 'stellar') {
+    if (balanceData.stellarBalance > 0) walletSymbols.add('XLM')
+    if (balanceData.usdcStellarBalance > 0) walletSymbols.add('USDC')
+  } else {
+    // Native gas token (e.g. CELO, ETH, BNB)
+    if (networkInfo.nativeSymbol && balanceData.nativeBalance?.displayValue != null) {
+      const nativeBal = Number(balanceData.nativeBalance.displayValue)
+      if (nativeBal > 0) walletSymbols.add(networkInfo.nativeSymbol.toUpperCase())
+    }
+    // ERC-20 tokens with on-chain balance (tokenBalances is already chain-scoped)
+    for (const [sym, bal] of Object.entries(balanceData.tokenBalances)) {
+      if (bal > 0) walletSymbols.add(sym.toUpperCase())
+    }
+  }
+
+  if (walletSymbols.size === 0) return []
+
+  // 2. Filter API currencies to active native types, then match by symbol
+  const seen = new Set<string>()
+  const matched: MatchedCurrency[] = []
+
+  for (const coin of currencies) {
+    if (!isCurrencyActive(coin)) continue
+    if (!isNativeTokenType(coin)) continue
+
+    const sym = (coin.symbol || '').toUpperCase()
+    if (!sym || !walletSymbols.has(sym)) continue
+    if (seen.has(sym)) continue // deduplicate by symbol
+    seen.add(sym)
+
+    // Resolve balance from wallet data
+    let balance = 0
+    if (networkInfo.walletType === 'stellar') {
+      if (sym === 'USDC') balance = balanceData.usdcStellarBalance
+      else if (sym === 'XLM') balance = balanceData.stellarBalance
+    } else {
+      const isGasToken = sym === networkInfo.nativeSymbol?.toUpperCase()
+      if (isGasToken && balanceData.nativeBalance?.displayValue != null) {
+        balance = Number(balanceData.nativeBalance.displayValue)
+      } else if (sym in balanceData.tokenBalances) {
+        balance = balanceData.tokenBalances[sym]
+      }
+    }
+
+    if (!Number.isFinite(balance)) balance = 0
+    if (balance <= 0) continue
+
+    matched.push({
+      currency: coin,
+      balance,
+      balanceFormatted: String(balance),
+      symbol: coin.symbol || '',
+      name: coin.token_name || coin.name || coin.symbol || '',
+      hasBalance: true,
+    })
+  }
+
+  return matched
+}
+
 /**
  * Check if wallet has specific Native currency symbols from API currencies
  * @param walletAssets - Array of assets in the wallet

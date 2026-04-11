@@ -1,6 +1,8 @@
 "use client"
-import { useState, useEffect, useRef } from "react"
-import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi'
+import { useState, useEffect, useRef, useCallback } from "react"
+import { useAccount, useConnect, useDisconnect, useSwitchChain, useBalance, usePublicClient } from 'wagmi'
+import { formatUnits } from 'viem'
+import { fetchSupportedCurrencies, fetchExchangeRates } from "@/utils/api"
 import type { Connector } from 'wagmi'
 
 // Global flag to prevent multiple WalletConnect initializations across the entire app
@@ -100,11 +102,119 @@ export function WalletInterface() {
   const [selectedAccountIndex, setSelectedAccountIndex] = useState(0)
   const isInitializing = useRef(false)
 
+  // Supported crypto assets from API, filtered by connected network
+  const [supportedAssets, setSupportedAssets] = useState<any[]>([])
+  const [assetRates, setAssetRates] = useState<Record<string, number>>({})
+  const [assetRatesLoading, setAssetRatesLoading] = useState(false)
+
+  // ERC-20 token balances: symbol -> formatted balance string
+  const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({})
+  const [tokenBalancesLoading, setTokenBalancesLoading] = useState(false)
+
   // Wagmi hooks
   const { address, isConnected, chain } = useAccount()
   const { connect, connectors, isPending } = useConnect()
   const { disconnect } = useDisconnect()
   const { switchChain } = useSwitchChain()
+
+  // Native token balance for the connected wallet
+  const { data: nativeBalance } = useBalance({ address: address as `0x${string}` | undefined })
+
+  // Public client for reading ERC-20 token balances
+  const publicClient = usePublicClient()
+
+  // ERC-20 balanceOf ABI fragment
+  const erc20BalanceOfAbi = [
+    {
+      inputs: [{ name: 'account', type: 'address' }],
+      name: 'balanceOf',
+      outputs: [{ name: '', type: 'uint256' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+    {
+      inputs: [],
+      name: 'decimals',
+      outputs: [{ name: '', type: 'uint8' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+  ] as const
+
+  // Well-known ERC-20 contract addresses as fallbacks when API doesn't provide them
+  // chainId -> symbol -> contractAddress
+  const KNOWN_TOKEN_CONTRACTS: Record<number, Record<string, string>> = {
+    42220: { // Celo
+      CUSD:  '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+      CEUR:  '0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73',
+      CREAL: '0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787',
+      USDC:  '0xcebA9300f2b948710d2653dD7B07f33A8B32118C',
+      USDT:  '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e',
+    },
+    1: { // Ethereum mainnet
+      USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+      USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+      DAI:  '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+    },
+    137: { // Polygon
+      USDT: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+      USDC: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+    },
+    42161: { // Arbitrum
+      USDT: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+      USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    },
+    10: { // Optimism
+      USDT: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
+      USDC: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+    },
+    8453: { // Base
+      USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+    },
+    56: { // BNB Chain
+      USDT: '0x55d398326f99059fF775485246999027B3197955',
+      USDC: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+    },
+    43114: { // Avalanche
+      USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+      USDC: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
+    },
+  }
+
+  // Helper: extract contract address from API coin, with fallback to well-known addresses
+  const getTokenContractForNetwork = useCallback((coin: any, networkName: string, chainId?: number): string | null => {
+    const sym = (coin?.symbol || '').toUpperCase()
+
+    // 1. Try API-provided contract address from the matching network entry
+    try {
+      const nets = typeof coin?.networks === 'string' ? JSON.parse(coin.networks || '[]') : (coin?.networks || [])
+      if (Array.isArray(nets)) {
+        const normTarget = networkName.toLowerCase().replace(/[\s_-]/g, '')
+        for (const net of nets) {
+          if (net.status !== 'active') continue
+          const netName = (net.network || net.label || '').toLowerCase().replace(/[\s_-]/g, '')
+          if (netName.includes(normTarget) || normTarget.includes(netName) || netName === normTarget) {
+            const addr = net.contract_address || net.contractAddress || net.token_address || net.address || null
+            if (addr && typeof addr === 'string' && addr.startsWith('0x') && addr.length === 42) return addr
+          }
+        }
+      }
+      // Top-level contract_address fallback
+      const topAddr = coin?.contract_address
+      if (topAddr && typeof topAddr === 'string' && topAddr.startsWith('0x') && topAddr.length === 42) return topAddr
+    } catch { }
+
+    // 2. Fall back to well-known hardcoded addresses by chainId
+    if (chainId && KNOWN_TOKEN_CONTRACTS[chainId]?.[sym]) {
+      return KNOWN_TOKEN_CONTRACTS[chainId][sym]
+    }
+
+    return null
+  }, [])
+
+  // Fetch ERC-20 token balances for supported assets on the current chain
+  // (see useEffect below assetsForCurrentNetwork declaration)
 
   // Sync Wagmi state with component state
   useEffect(() => {
@@ -130,22 +240,136 @@ export function WalletInterface() {
     }
   }, [chain])
 
-  const totalBalance = 0.0
-  const celoBalance = 0.0
-  const usdValue = 0.0
-  const btcBalance = 0.245
-  const ethBalance = 4.8
-  const usdcBalance = 1250.0
+  // Derive native balance values from wagmi hook
+  const celoBalance = nativeBalance ? parseFloat(nativeBalance.formatted) : 0.0
+  const usdValue = celoBalance * (assetRates[nativeBalance?.symbol?.toUpperCase() || 'CELO'] || 0)
+  const totalBalance = celoBalance
 
   const currencies = [
-    { code: "USD", symbol: "$", rate: 1 },
-    { code: "EUR", symbol: "€", rate: 0.85 },
-    { code: "GBP", symbol: "£", rate: 0.73 },
-    { code: "JPY", symbol: "¥", rate: 110 },
+    { code: "USD", symbol: "$" },
+    { code: "EUR", symbol: "€" },
+    { code: "GBP", symbol: "£" },
+    { code: "JPY", symbol: "¥" },
+    { code: "KES", symbol: "KSh" },
+    { code: "UGX", symbol: "USh" },
+    { code: "NGN", symbol: "₦" },
+    { code: "GHS", symbol: "₵" },
   ]
 
   const getCurrentCurrency = () => currencies.find((c) => c.code === selectedCurrency) || currencies[0]
-  const convertAmount = (amount: number) => (amount * getCurrentCurrency().rate).toFixed(2)
+  const convertAmount = (amount: number, rateToUsd: number) => (amount * rateToUsd).toFixed(2)
+
+  // Parse active networks from a coin object (networks field is a JSON string)
+  const getCoinNetworks = (coin: any): any[] => {
+    try {
+      const nets = typeof coin?.networks === "string" ? JSON.parse(coin.networks || "[]") : (coin?.networks || [])
+      return Array.isArray(nets) ? nets.filter((n: any) => n.status === "active") : []
+    } catch {
+      return []
+    }
+  }
+
+  // Filter supported assets to those that support the current connected network
+  const assetsForCurrentNetwork = supportedAssets.filter((coin) => {
+    if (!isWalletConnected || !currentNetwork) return true
+    const coinNets = getCoinNetworks(coin)
+    const currNet = currentNetwork.toLowerCase()
+    return coinNets.some((n: any) => {
+      const netName = (n.network || n.label || "").toLowerCase()
+      return netName.includes(currNet) || currNet.includes(netName) || netName === currNet
+    })
+  })
+
+  // Fetch ERC-20 token balances for supported assets on the current chain
+  // (moved below assetsForCurrentNetwork declaration)
+  useEffect(() => {
+    if (!publicClient || !address || !isConnected || !currentNetwork || assetsForCurrentNetwork.length === 0) return
+
+    const currentChainId = chain?.id
+
+    const fetchTokenBalances = async () => {
+      setTokenBalancesLoading(true)
+      const balances: Record<string, number> = {}
+
+      // Include native gas token from useBalance hook
+      if (nativeBalance) {
+        balances[nativeBalance.symbol?.toUpperCase() || 'CELO'] = parseFloat(nativeBalance.formatted)
+      }
+
+      // Filter: active, "Native" token_type, not the native gas token, has a resolvable contract address
+      const tokensToCheck = assetsForCurrentNetwork.filter((coin) => {
+        const sym = (coin.symbol || '').toUpperCase()
+        const type = String((coin as any)?.token_type || '').toLowerCase()
+        const active = (coin as any)?.coin_status === 'active' || (coin as any)?.status === 'active' || (coin as any)?.status === true
+        if (!active || type !== 'native') return false
+        if (nativeBalance && nativeBalance.symbol?.toUpperCase() === sym) return false
+        return getTokenContractForNetwork(coin, currentNetwork, currentChainId) !== null
+      })
+
+      await Promise.all(tokensToCheck.map(async (coin) => {
+        const sym = (coin.symbol || '').toUpperCase()
+        const contractAddr = getTokenContractForNetwork(coin, currentNetwork, currentChainId)
+        if (!contractAddr) return
+
+        try {
+          const [rawBalance, decimals] = await Promise.all([
+            publicClient.readContract({
+              address: contractAddr as `0x${string}`,
+              abi: erc20BalanceOfAbi,
+              functionName: 'balanceOf',
+              args: [address as `0x${string}`],
+            }),
+            publicClient.readContract({
+              address: contractAddr as `0x${string}`,
+              abi: erc20BalanceOfAbi,
+              functionName: 'decimals',
+            }),
+          ])
+          balances[sym] = parseFloat(formatUnits(rawBalance as bigint, decimals as number))
+        } catch (err) {
+          console.warn(`[v0] Failed to read balance for ${sym} at ${contractAddr}:`, err)
+          balances[sym] = 0
+        }
+      }))
+
+      setTokenBalances(balances)
+      setTokenBalancesLoading(false)
+    }
+
+    fetchTokenBalances()
+  }, [publicClient, address, isConnected, currentNetwork, chain?.id, assetsForCurrentNetwork.length, nativeBalance, getTokenContractForNetwork])
+
+  // Fetch supported crypto assets once on mount
+  useEffect(() => {
+    fetchSupportedCurrencies()
+      .then((data: any[]) => {
+        const cryptoNative = data.filter(
+          (c: any) =>
+            (c.token_type === "Native" || c.token_type === "native") &&
+            c.coin_status === "active"
+        )
+        setSupportedAssets(cryptoNative)
+      })
+      .catch((err) => console.error("[v0] Failed to fetch supported currencies:", err))
+  }, [])
+
+  // Fetch exchange rates whenever the selected base currency changes
+  useEffect(() => {
+    if (!selectedCurrency) return
+    setAssetRatesLoading(true)
+    fetchExchangeRates(selectedCurrency)
+      .then((resp) => {
+        const rates: any[] = resp.data?.rates || (resp as any).rates || []
+        const rateMap: Record<string, number> = {}
+        rates.forEach((r: any) => {
+          const sym = (r.symbol || r.currency || "").toUpperCase()
+          if (sym && r.rate) rateMap[sym] = Number(r.rate)
+        })
+        setAssetRates(rateMap)
+      })
+      .catch((err) => console.error("[v0] Failed to fetch exchange rates:", err))
+      .finally(() => setAssetRatesLoading(false))
+  }, [selectedCurrency])
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
@@ -189,16 +413,16 @@ export function WalletInterface() {
     {
       symbol: "BTC",
       name: "Bitcoin",
-      balance: btcBalance,
+      balance: tokenBalances["BTC"] || 0,
       value: 12250.5,
       icon: BitcoinIcon,
       color: "text-orange-500",
     },
-    { symbol: "ETH", name: "Ethereum", balance: ethBalance, value: 11280.0, icon: null, color: "text-blue-500" },
+    { symbol: "ETH", name: "Ethereum", balance: tokenBalances["ETH"] || 0, value: 11280.0, icon: null, color: "text-blue-500" },
     {
       symbol: "USDC",
       name: "USD Coin",
-      balance: usdcBalance,
+      balance: tokenBalances["USDC"] || 0,
       value: 1250.0,
       icon: DollarSignIcon,
       color: "text-green-500",
@@ -653,10 +877,6 @@ export function WalletInterface() {
           optionalChains: WALLETCONNECT_CONFIG.chains as [number, ...number[]],
           showQrModal: true,
           rpcMap: WALLETCONNECT_CONFIG.rpcMap,
-          // Add connection timeout and retry configuration
-          connectionTimeout: 30000, // 30 seconds
-          retryCount: 3,
-          retryDelay: 1000, // 1 second between retries
         })
 
         setWalletConnectProvider(provider)
@@ -709,7 +929,7 @@ export function WalletInterface() {
         })
 
         // Add error event listener to prevent unhandled errors
-        provider.on("error", (error: Error) => {
+        provider.on("error" as any, (error: Error) => {
           console.error("[v0] WalletConnect provider error:", error)
           // Handle the error gracefully - don't disconnect unless it's a critical error
           if (error.message.includes("Connection interrupted") || 
@@ -732,7 +952,7 @@ export function WalletInterface() {
           disconnectWallet()
         })
 
-        provider.on("session_expire", () => {
+        provider.on("session_expire" as any, () => {
           console.log("[v0] WalletConnect session expired, cleaning up...")
           disconnectWallet()
         })
@@ -756,7 +976,8 @@ export function WalletInterface() {
         }, 10000) // Check every 10 seconds
 
         // Store interval reference for cleanup
-        provider._healthCheckInterval = healthCheckInterval
+        // Store interval reference for cleanup (do not assign to provider)
+        ;(provider as any)._healthCheckInterval = healthCheckInterval
       } catch (error) {
         console.error("[v0] Failed to initialize WalletConnect:", error)
         console.error("[v0] Error details:", {
@@ -835,6 +1056,17 @@ export function WalletInterface() {
     }
   }
 
+  // Compute overall wallet balance for the currently selected send currency in TransactionForms
+  // This sums native balance + all token balances
+  const computedWalletBalance = (() => {
+    const allBals = { ...tokenBalances }
+    if (nativeBalance) {
+      allBals[nativeBalance.symbol?.toUpperCase() || ''] = parseFloat(nativeBalance.formatted)
+    }
+    // Return the total; TransactionForms uses this as the selected currency balance
+    return Object.values(allBals).reduce((sum, b) => sum + b, 0)
+  })()
+
   if (showTransactionForms) {
     return (
       <TransactionForms
@@ -843,6 +1075,10 @@ export function WalletInterface() {
         walletType={walletType}
         onConnectWallet={() => (isWalletConnected ? disconnectWallet() : setShowWalletModal(true))}
         walletNetwork={walletType === "Stellar Wallet" ? "Stellar" : chain ? chain.name : undefined}
+        transactionType={walletType === "Stellar Wallet" ? "send" : "send"}
+        connectedWallet={walletAddress}
+        connectWalletBalance={computedWalletBalance}
+        tokenBalances={tokenBalances}
       />
     )
   }
@@ -885,11 +1121,16 @@ export function WalletInterface() {
         <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
           <CardContent className="p-4 text-center">
             <p className="text-sm text-gray-600 mb-1">Your Balance</p>
-            <p className="text-2xl font-bold text-gray-900">{celoBalance.toFixed(4)} CELO</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {nativeBalance ? `${parseFloat(nativeBalance.formatted).toFixed(4)} ${nativeBalance.symbol}` : `${celoBalance.toFixed(4)} CELO`}
+            </p>
             <div className="flex items-center justify-center gap-2">
               <p className="text-sm text-gray-600">
                 ≈ {getCurrentCurrency().symbol}
-                {convertAmount(usdValue)} {selectedCurrency}
+                {nativeBalance
+                  ? (parseFloat(nativeBalance.formatted) * (assetRates[nativeBalance.symbol?.toUpperCase() || ""] || 0)).toFixed(2)
+                  : usdValue.toFixed(2)}{" "}
+                {selectedCurrency}
               </p>
               <div className="relative">
                 <Button
@@ -981,114 +1222,123 @@ export function WalletInterface() {
           {/* Assets section */}
           <div className="mb-4">
             <div className="px-6 py-2">
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Assets</h3>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-xl font-bold text-gray-900">Assets</h3>
+                {assetRatesLoading && (
+                  <div className="animate-spin h-4 w-4 border-2 border-[#19B17A] border-t-transparent rounded-full" />
+                )}
+              </div>
+              {isWalletConnected && (
+                <p className="text-xs text-gray-500 mb-2">
+                  {currentNetwork} · {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : ""}
+                </p>
+              )}
             </div>
             <div className="space-y-0">
-              <div className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-100">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
-                    <WalletIcon className="h-4 w-4 text-orange-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">MetaMask</p>
-                    <p className="text-sm text-gray-600">Browser extension</p>
-                  </div>
-                </div>
-                <Badge className="bg-green-50 text-green-700 border-green-200">Connected</Badge>
-              </div>
+              {assetsForCurrentNetwork.length > 0 ? (
+                assetsForCurrentNetwork.map((asset: any, index: number) => {
+                  const sym = (asset.symbol || "").toUpperCase()
+                  const isNativeToken =
+                    nativeBalance && nativeBalance.symbol?.toUpperCase() === sym
+                  const balance = isNativeToken
+                    ? parseFloat(nativeBalance.formatted)
+                    : (tokenBalances[sym] ?? 0)
+                  const hasBalance = isNativeToken || tokenBalances[sym] !== undefined
+                  const rate = assetRates[sym] || 0
+                  const fiatValue = balance * rate
+                  const iconUrl = `/flag/${(asset.symbol || "").toLowerCase()}.png`
 
-              <div className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-100">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <WalletIcon className="h-4 w-4 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">WalletConnect</p>
-                    <p className="text-sm text-gray-600">Mobile wallets</p>
-                  </div>
+                  return (
+                    <div
+                      key={asset.symbol}
+                      className={`flex items-center justify-between p-4 bg-gray-50 ${
+                        index < assetsForCurrentNetwork.length - 1 ? "border-b border-gray-100" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="relative h-8 w-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center shrink-0">
+                          <span className="text-[9px] font-bold text-gray-600 z-0">{sym.slice(0, 2)}</span>
+                          <img
+                            src={iconUrl}
+                            alt={sym}
+                            className="absolute inset-0 w-full h-full object-cover rounded-full z-10"
+                            onError={(e) => { e.currentTarget.style.display = "none" }}
+                          />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{asset.token_name || asset.symbol}</p>
+                          <p className="text-xs text-gray-500">{sym}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-medium text-gray-900">
+                          {hasBalance ? balance.toFixed(6) : (tokenBalancesLoading ? "..." : "—")} {sym}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {rate > 0 && hasBalance
+                            ? `${getCurrentCurrency().symbol}${fiatValue.toFixed(2)} ${selectedCurrency}`
+                            : "—"}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="p-8 text-center text-sm text-gray-500">
+                  {isWalletConnected
+                    ? "No supported assets for the connected network"
+                    : "Connect your wallet to see assets"}
                 </div>
-                <Badge className="bg-gray-50 text-gray-700 border-gray-200">Available</Badge>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center">
-                    <WalletIcon className="h-4 w-4 text-purple-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Coinbase Wallet</p>
-                    <p className="text-sm text-gray-600">Self-custody wallet</p>
-                  </div>
-                </div>
-                <Badge className="bg-gray-50 text-gray-700 border-gray-200">Available</Badge>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* Exchange Rates section */}
-          <div className="mb-4">
-            <div className="px-6 py-2">
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Exchange Rates</h3>
-            </div>
-            <div className="space-y-0">
-              <div className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-100">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
-                    <BitcoinIcon className="h-4 w-4 text-orange-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">BTC/USD</p>
-                    <p className="text-sm text-gray-600">Bitcoin</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-medium text-gray-900">$49,250.00</p>
-                  <div className="flex items-center gap-1">
-                    <TrendingUpIcon className="h-3 w-3 text-green-500" />
-                    <p className="text-sm text-green-600">+2.4%</p>
-                  </div>
-                </div>
+          {/* Exchange Rates section — live from API */}
+          {Object.keys(assetRates).length > 0 && (
+            <div className="mb-4">
+              <div className="px-6 py-2">
+                <h3 className="text-xl font-bold text-gray-900 mb-3">
+                  Exchange Rates <span className="text-sm font-normal text-gray-500">vs {selectedCurrency}</span>
+                </h3>
               </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-100">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-xs font-bold text-blue-600">ETH</span>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">ETH/USD</p>
-                    <p className="text-sm text-gray-600">Ethereum</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-medium text-gray-900">$2,350.00</p>
-                  <div className="flex items-center gap-1">
-                    <TrendingUpIcon className="h-3 w-3 text-green-500" />
-                    <p className="text-sm text-green-600">+1.8%</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                    <span className="text-xs font-bold text-yellow-600">CELO</span>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">CELO/USD</p>
-                    <p className="text-sm text-gray-600">Celo</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-medium text-gray-900">$0.65</p>
-                  <div className="flex items-center gap-1">
-                    <TrendingDownIcon className="h-3 w-3 text-red-500" />
-                    <p className="text-sm text-red-600">-0.5%</p>
-                  </div>
-                </div>
+              <div className="space-y-0">
+                {Object.entries(assetRates)
+                  .slice(0, 10)
+                  .map(([sym, rate], index, arr) => {
+                    const iconUrl = `/flag/${sym.toLowerCase()}.png`
+                    return (
+                      <div
+                        key={sym}
+                        className={`flex items-center justify-between p-4 bg-gray-50 ${
+                          index < arr.length - 1 ? "border-b border-gray-100" : ""
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="relative h-8 w-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center shrink-0">
+                            <span className="text-[9px] font-bold text-gray-600 z-0">{sym.slice(0, 2)}</span>
+                            <img
+                              src={iconUrl}
+                              alt={sym}
+                              className="absolute inset-0 w-full h-full object-cover rounded-full z-10"
+                              onError={(e) => { e.currentTarget.style.display = "none" }}
+                            />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{sym}/{selectedCurrency}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-medium text-gray-900">
+                            {getCurrentCurrency().symbol}
+                            {rate.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
               </div>
             </div>
-          </div>
+          )}
 
           {/* Recent Transactions section */}
           <div>
