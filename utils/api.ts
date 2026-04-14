@@ -353,6 +353,12 @@ export interface GeneralExchangeRate {
   rate: number
   timestamp: number
   source?: string
+  price?: {
+    base_coin?: string
+    quote_coin?: string
+    marketcap_amount?: number | string
+    [key: string]: any
+  }
 }
 
 export interface GeneralExchangeRatesResponse {

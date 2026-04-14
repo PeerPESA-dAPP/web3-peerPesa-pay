@@ -73,10 +73,6 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   HomeIcon,
-<<<<<<< HEAD
-=======
-  ActivityIcon,
->>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
   BellIcon,
   GlobeIcon,
   XIcon,
@@ -935,7 +931,6 @@ export function ThirdwebWalletInterface() {
 
   // Sync EVM connection status — reset token balances when wallet disconnects
   useEffect(() => {
-<<<<<<< HEAD
     if (isConnected && address) {
       if (!(walletType === 'stellar' && stellarAddress)) {
         setWalletType('evm')
@@ -946,21 +941,12 @@ export function ThirdwebWalletInterface() {
         description: `Connected to ${address.slice(0, 6)}...${address.slice(-4)}`,
         variant: "default",
       })
-      
-      // Fetch CELO balance when EVM wallet connects
-      fetchCeloBalance(address)
     } else if (!isConnected && !address && !stellarAddress) {
-      // Reset CELO balance when no wallet is connected (neither EVM nor Stellar)
-      setCeloBalance(0.00)
+      // Reset balances when no wallet is connected (neither EVM nor Stellar)
+      setTokenBalances({})
       setUsdValue(0.00)
     }
   }, [isConnected, address, stellarAddress, walletType])
-=======
-    if (!isConnected && !address) {
-      setTokenBalances({})
-    }
-  }, [isConnected, address])
->>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
 
   // Handle Stellar wallet balance updates
   useEffect(() => {
@@ -1118,9 +1104,9 @@ export function ThirdwebWalletInterface() {
 
   const exchangeAmount = (amount: string, symbol: string, currency: string) => {
      try{
-      const theRateGor = generalExchangeRates.filter(rate => rate.price.base_coin === symbol && rate.price.quote_coin === currency)
+      const theRateGor = generalExchangeRates.filter(rate => rate.price?.base_coin === symbol && rate.price?.quote_coin === currency)
       if(theRateGor.length > 0) {
-        const theTAmount: any = (Number(theRateGor[0].price.marketcap_amount) * Number(amount)).toFixed(2)
+        const theTAmount: any = (Number(theRateGor[0].price?.marketcap_amount) * Number(amount)).toFixed(2)
         return theTAmount;
       }
       return (0).toFixed(2)
@@ -1199,11 +1185,6 @@ export function ThirdwebWalletInterface() {
     currencies,
     tokenBalances,
   ])
-
-
-
-
-
 
 
   const getTransactionIcon = (type: string) => {
@@ -1372,7 +1353,7 @@ export function ThirdwebWalletInterface() {
 
     const rawRpcUrl = (chain as any)?.rpc?.[0]
     const rpcUrl = resolveRpcUrl(rawRpcUrl)
-    if (!rpcUrl) return []
+    if (!rpcUrl) return { items: [], hasMore: false, mode: "evm-rpc" as const }
 
     const rpcCall = async (method: string, params: any[]) => {
       const rpcResponse = await fetch(rpcUrl, {
@@ -2085,7 +2066,6 @@ export function ThirdwebWalletInterface() {
 
               </CardContent>
             </Card>
-<<<<<<< HEAD
            {! showTransactionForms && (
               <div className="grid grid-cols-3 gap-3 mb-6 sticky top-16 z-10 bg-white pt-2 pb-2">
                 <Button
@@ -2219,10 +2199,6 @@ export function ThirdwebWalletInterface() {
         )
       })()}
 
-=======
-      </div>
-
->>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
       {/* Transaction Forms Modal */}
       {showTransactionForms && (
         <TransactionForms
@@ -2249,14 +2225,9 @@ export function ThirdwebWalletInterface() {
          />
        )}
         
-<<<<<<< HEAD
 
             {/* Tabs */}
        {!showTransactionForms && !showNotifications && (
-=======
-       {/* Tabs */}
-       {!showTransactionForms && (
->>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
         <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
           <TabsList className="grid w-full grid-cols-2 bg-gray-100">
             <TabsTrigger
@@ -2271,15 +2242,6 @@ export function ThirdwebWalletInterface() {
             >
               Transactions
                 </TabsTrigger>
-<<<<<<< HEAD
-=======
-            <TabsTrigger
-              value="notifications"
-              className="data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=inactive]:text-black hover:text-black cursor-pointer"
-            >
-              Notifications
-                </TabsTrigger>
->>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
               </TabsList>
 
           <TabsContent value="overview" className="mt-1">
@@ -2587,19 +2549,11 @@ export function ThirdwebWalletInterface() {
             </div>
           </TabsContent>
 
-<<<<<<< HEAD
-
-=======
-          <TabsContent value="notifications" className="mt-6">
-            <NotificationsPanel />
-          </TabsContent>
->>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
         </Tabs> )}
 
 
 
 
-<<<<<<< HEAD
         {/* Footer Navigation Bar */}
         {!showNotifications && (
         <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-100 shadow-2xl px-8 h-[60px]">
@@ -2642,8 +2596,6 @@ export function ThirdwebWalletInterface() {
           </div>
         )}
 
-=======
->>>>>>> ef7c726b59bf4fc40c663d1b6712c0198cb0233b
         {/* Wallet Connection Modal */}
         {showWalletModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
