@@ -44,6 +44,64 @@ peerPesa-Web3/
 📅 Task & Reward Tracking: Assign, complete, and reward tasks via blockchain.
 🔔 Notifications & Activity Logs: Frontend notifications and on‑chain event tracking.
 
+---
+
+## 📲 Connecting to MiniPay
+
+[MiniPay](https://www.opera.com/products/minipay) is a stablecoin-based wallet built into Opera Mini, designed for everyday payments on the **Celo** network. peerPesa supports MiniPay as a wallet option for users in Africa.
+
+### How It Works
+
+MiniPay injects a standard EIP-1193 provider into the browser context, so it behaves like any other injected EVM wallet (similar to MetaMask). When a user opens peerPesa inside the MiniPay in-app browser:
+
+1. **Auto-detection** – The dApp detects the injected provider (`window.ethereum`) from MiniPay.
+2. **Connect** – The user taps **Connect Wallet** and selects the injected wallet option. MiniPay will prompt for approval.
+3. **Network** – MiniPay operates on **Celo Mainnet** (chain ID `42220`). The app already supports Celo, so no manual network switching is required.
+4. **Transact** – Once connected, the user can send, receive, buy, and swap tokens (e.g. cUSD, USDT, USDC, CELO) through the standard transaction flows.
+
+### Testing with MiniPay
+
+1. Install [Opera Mini](https://play.google.com/store/apps/details?id=com.opera.mini.native) on an Android device and activate MiniPay.
+2. Open the peerPesa dApp URL in the MiniPay in-app browser.
+3. Connect the wallet – the MiniPay injected provider will appear automatically.
+4. The connected account and Celo balances will display in the wallet interface.
+
+---
+
+## 📜 Celo & Stellar Asset Transfers
+
+peerPesa facilitates cross-border asset transfers on both **Celo** (EVM) and **Stellar** networks.
+
+### Celo (EVM)
+
+Celo is fully EVM-compatible. The dApp supports direct ERC-20 token transfers (cUSD, USDT, USDC) and native CELO transfers, as well as escrow-based flows for off-ramp confirmation.
+
+#### Supported Tokens on Celo
+
+| Token | Contract Address |
+|-------|-----------------|
+| cUSD  | `0x765DE816845861e75A25fCA122bb6898B8B1282a` |
+| cEUR  | `0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73` |
+| USDC  | `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` |
+| USDT  | `0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e` |
+
+### Stellar (Soroban)
+
+Stellar uses [Soroban](https://soroban.stellar.org) for on-chain smart contracts. peerPesa handles XLM and Stellar-issued tokens (e.g. USDC via Circle).
+
+#### Supported Assets on Stellar
+
+| Asset | Issuer |
+|-------|--------|
+| XLM   | Native (no issuer) |
+| USDC  | `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN` (Circle) |
+
+### Frontend Integration
+
+- **Celo/EVM** – `viem` calls (`readContract`, `writeContract`) using the connected wallet provider. Token contract addresses are resolved from the API or the `KNOWN_TOKEN_CONTRACTS` map in the wallet interface.
+- **Stellar** – The Horizon REST API (`https://horizon.stellar.org`) for balance queries, and Stellar SDK / Soroban client for submitting signed transactions via Freighter, Albedo, xBull, or Rabet wallets.
+
+
 🔧 Getting Started
 
 Prerequisites
