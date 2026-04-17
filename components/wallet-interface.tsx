@@ -17,6 +17,7 @@ import { WalletConnectModal } from "@walletconnect/modal"
 import { WALLETCONNECT_CONFIG, STELLAR_CONFIG } from "@/lib/walletconnect-config"
 import { setupPolyfills } from "@/lib/polyfills"
 import { toast } from "@/hooks/use-toast"
+import { useMiniPay } from "@/hooks/use-minipay"
 import {
   ArrowUpIcon,
   ArrowDownIcon,
@@ -116,6 +117,9 @@ export function WalletInterface() {
   const { connect, connectors, isPending } = useConnect()
   const { disconnect } = useDisconnect()
   const { switchChain } = useSwitchChain()
+
+  // MiniPay detection hook
+  const { isMiniPay, miniPayVersion } = useMiniPay()
 
   // Native token balance for the connected wallet
   const { data: nativeBalance } = useBalance({ address: address as `0x${string}` | undefined })
@@ -239,6 +243,18 @@ export function WalletInterface() {
       setCurrentNetwork(chain.name)
     }
   }, [chain])
+
+  // Update wallet type when MiniPay is detected
+  useEffect(() => {
+    console.log('[WalletInterface] MiniPay detection:', { isMiniPay, miniPayVersion, currentWalletType: walletType })
+    if (isMiniPay && walletType === "WalletConnect") {
+      console.log('[WalletInterface] Setting wallet type to MiniPay')
+      setWalletType("MiniPay")
+    } else if (!isMiniPay && walletType === "MiniPay") {
+      console.log('[WalletInterface] Setting wallet type back to WalletConnect')
+      setWalletType("WalletConnect")
+    }
+  }, [isMiniPay, walletType])
 
   // Derive native balance values from wagmi hook
   const celoBalance = nativeBalance ? parseFloat(nativeBalance.formatted) : 0.0
@@ -497,6 +513,51 @@ export function WalletInterface() {
       toast({
         title: "Connection Failed",
         description: "Failed to connect via WalletConnect. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
+  const connectMiniPay = async () => {
+    try {
+      setIsConnecting(true)
+      
+      // Try to connect via WalletConnect first
+      const walletConnectConnector = connectors.find(c => c.id === 'walletConnect')
+      if (walletConnectConnector) {
+        await connect({ connector: walletConnectConnector })
+        setShowWalletModal(false)
+        
+        // Check if MiniPay was connected
+        setTimeout(() => {
+          if (isMiniPay) {
+            toast({
+              title: "MiniPay Connected",
+              description: `Connected to MiniPay${miniPayVersion ? ` v${miniPayVersion}` : ''}`,
+              variant: "default",
+            })
+          } else {
+            toast({
+              title: "Wallet Connected",
+              description: "Connected via WalletConnect (not MiniPay)",
+              variant: "default",
+            })
+          }
+        }, 1000) // Give time for the hook to detect MiniPay
+      } else {
+        toast({
+          title: "WalletConnect Error",
+          description: "WalletConnect connector not available.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("[v0] MiniPay connection failed:", error)
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect to MiniPay. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -1655,6 +1716,24 @@ export function WalletInterface() {
             <div className="p-6 space-y-4">
               <p className="text-sm text-gray-600 mb-6">Choose your preferred wallet to connect</p>
               
+              {/* MiniPay specific button */}
+              <Button
+                variant="outline"
+                className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
+                onClick={connectMiniPay}
+                disabled={isConnecting}
+              >
+                <div className="h-10 w-10 rounded-full flex items-center justify-center bg-green-100">
+                  <WalletIcon className="h-5 w-5 text-green-600" />
+                </div>
+                <div className="text-left">
+                  <p className="font-semibold text-gray-900">
+                    {isConnecting ? "Connecting..." : "MiniPay"}
+                  </p>
+                  <p className="text-sm text-gray-600">Celo mobile wallet</p>
+                </div>
+              </Button>
+              
               {connectors.map((connector) => (
                 <Button
                   key={connector.id}
@@ -1721,37 +1800,6 @@ export function WalletInterface() {
       )}
 
       {/* Footer Navigation Bar */}
-      <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-100 shadow-2xl px-8 h-[60px]">
-        <div className="flex items-center justify-between relative h-full">
-          {/* Home Button */}
-          <Button
-            variant="ghost"
-            className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
-            onClick={() => setActiveTab("overview")}
-          >
-            <HomeIcon className="h-6 w-6" />
-            <span className="text-xs font-medium">Home</span>
-          </Button>
-
-          <Button
-            className="flex flex-col items-center gap-1 h-16 w-16 rounded-full bg-gradient-to-r from-[#19B17A] to-[#15a06b] hover:from-[#158f68] hover:to-[#138f5f] text-white cursor-pointer -mt-10 shadow-lg shadow-green-200 transition-all duration-200 hover:shadow-xl hover:shadow-green-300 hover:scale-105"
-            onClick={() => setShowTransactionForms(true)}
-          >
-            <SendIcon className="h-6 w-6" />
-            <span className="text-xs font-medium">Send</span>
-          </Button>
-
-          {/* Activities Button */}
-          <Button
-            variant="ghost"
-            className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
-            onClick={() => setActiveTab("activity")}
-          >
-            <ActivityIcon className="h-6 w-6" />
-            <span className="text-xs font-medium">Activities</span>
-          </Button>
-        </div>
-      </div>
     </div>
   )
 }

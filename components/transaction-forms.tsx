@@ -1830,39 +1830,6 @@ export function TransactionForms({  onBack,
           </Card>
         )}
       </div>
-
-      {/* Footer Navigation Bar */}
-      {!showNotifications && (
-      <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-100 shadow-2xl px-8 h-[60px]">
-        <div className="flex items-center justify-between relative h-full">
-          {/* Home Button */}
-          <Button
-            variant="ghost"
-            className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
-            onClick={onBack}
-          >
-            <HomeIcon className="h-6 w-6" />
-            <span className="text-xs font-medium">Home</span>
-          </Button>
-
-          {/* Send Money Button - Circular with overflow */}
-          <Button className="flex flex-col items-center gap-1 h-16 w-16 rounded-full bg-gradient-to-r from-[#19B17A] to-[#15a06b] hover:from-[#158f68] hover:to-[#138f5f] text-white cursor-pointer -mt-10 shadow-lg shadow-green-200 transition-all duration-200 hover:shadow-xl hover:shadow-green-300 hover:scale-105">
-            <SendIcon className="h-6 w-6" />
-            <span className="text-xs font-medium">Send</span>
-          </Button>
-
-          {/* Notifications Button */}
-          <Button
-            variant="ghost"
-            className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
-            onClick={() => setShowNotifications(true)}
-          >
-            <ActivityIcon className="h-6 w-6" />
-            <span className="text-xs font-medium">Notifications</span>
-          </Button>
-        </div>
-      </div>
-      )}
     </div>
   )
 }

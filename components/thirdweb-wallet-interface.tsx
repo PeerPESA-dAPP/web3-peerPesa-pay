@@ -78,6 +78,7 @@ import {
   XIcon,
 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import { useMiniPay } from "@/hooks/use-minipay"
 import { WalletNotifications, useHasActiveNotifications, NotificationsPanel, useRecordToastNotifications, useNotificationCount } from "@/components/wallet-notifications"
 import {
   parseSwapUrlParams,
@@ -134,6 +135,7 @@ export function ThirdwebWalletInterface() {
   const hasActiveNotifications = useHasActiveNotifications()
   const notificationCount = useNotificationCount()
   useRecordToastNotifications()
+  const { isMiniPay, miniPayVersion, miniPayCheckComplete } = useMiniPay()
   const [activeTab, setActiveTab] = useState("overview")
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false)
   
@@ -160,9 +162,30 @@ export function ThirdwebWalletInterface() {
     }
   }, [hasUrlSwapParams])
 
+
+  // Show MiniPay connection status toast
+  useEffect(() => {
+    if (miniPayCheckComplete) {
+      if (isMiniPay) {
+        // toast({
+        //   title: "✅ MiniPay Connected",
+        //   description: `Connected to MiniPay${miniPayVersion ? ` (v${miniPayVersion})` : ''}`,
+        //   variant: "default",
+        // })
+      } else {
+        // toast({
+        //   title: "ℹ️ Regular Wallet Mode",
+        //   description: "MiniPay is not detected. Standard wallet connection is available.",
+        //   variant: "default",
+        // })
+      }
+    }
+  }, [miniPayCheckComplete, isMiniPay, miniPayVersion])
+
+
   // Use standalone currency hook
   const { 
-    selectedCurrency, 
+    selectedCurrency,   
     setSelectedCurrency, 
     getCurrentCurrency, 
     exchangeRates,
@@ -173,6 +196,7 @@ export function ThirdwebWalletInterface() {
     error: currencyError,
     refetch: refetchCurrencies
   } = useCurrency()
+
   const [showTransactionForms, setShowTransactionForms] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [notificationLimit, setNotificationLimit] = useState(8)
@@ -218,7 +242,6 @@ export function ThirdwebWalletInterface() {
   const [stellarActivityCursor, setStellarActivityCursor] = useState<string | null>(null)
   const [evmActivityPage, setEvmActivityPage] = useState(1)
   const [evmRpcNextBlock, setEvmRpcNextBlock] = useState<number | null>(null)
-
 
 
   useEffect(() => {
@@ -1564,7 +1587,7 @@ export function ThirdwebWalletInterface() {
 
             <div className="flex items-center space-x-3">
               {/* Show connected wallet info based on wallet type */}
-              {(isConnected && address) || (walletType === 'stellar' && stellarAddress) ? (
+              {(isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address) ? (
                 <div className="flex items-center space-x-2">
                   {walletType === 'stellar' && stellarAddress ? (
                     // Stellar wallet connected
@@ -1577,6 +1600,19 @@ export function ThirdwebWalletInterface() {
                       >
                         <UserIcon className="w-4 h-4" />
                         <span className="hidden sm:inline">{stellarAddress.slice(0, 6)}...{stellarAddress.slice(-4)}</span>
+                      </Button>
+                    </>
+                  ) : isMiniPay && address ? (
+                    // MiniPay wallet connected
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleDisconnect}
+                        className="flex items-center space-x-2 border-[#19B17A] text-[#19B17A]"
+                      >
+                        <UserIcon className="w-4 h-4" />
+                        <span className="hidden sm:inline">{formatAddress(address)}</span>
                       </Button>
                     </>
                   ) : (
@@ -1608,7 +1644,7 @@ export function ThirdwebWalletInterface() {
                       <div className="fixed left-1/2 transform -translate-x-1/2 mt-2 w-[90%] max-w-[calc(28rem*0.9)] bg-white rounded-lg shadow-xl border border-gray-200 z-50 flex flex-col max-h-[80vh]">
                         <div className="p-4 border-b border-gray-200 flex items-center justify-between shrink-0">
                           <h3 className="text-lg font-semibold text-gray-900">
-                            {walletType === 'stellar' ? 'Stellar Wallet' : 'EVM Wallet'}
+                            {isMiniPay && address ? 'MiniPay Wallet' : walletType === 'stellar' ? 'Stellar Wallet' : 'EVM Wallet'}
                           </h3>
                           <Button
                             variant="ghost"
@@ -1623,11 +1659,13 @@ export function ThirdwebWalletInterface() {
                           <div className="space-y-3">
                             <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                               <div className="flex items-center gap-3">
-                                <LinkIcon className={`h-4 w-4 ${walletType === 'stellar' ? 'text-blue-500' : 'text-green-500'}`} />
+                                <LinkIcon className={`h-4 w-4 ${isMiniPay && address ? 'text-[#19B17A]' : walletType === 'stellar' ? 'text-blue-500' : 'text-green-500'}`} />
                                 <div>
                                   <p className="font-medium text-gray-900">Wallet Connected</p>
                                   <p className="text-sm text-gray-600">
-                                    {walletType === 'stellar' && stellarAddress 
+                                    {isMiniPay && address
+                                      ? `${address.slice(0, 6)}...${address.slice(-4)}`
+                                      : walletType === 'stellar' && stellarAddress 
                                       ? `${stellarAddress.slice(0, 6)}...${stellarAddress.slice(-4)}`
                                       : address 
                                         ? `${address.slice(0, 6)}...${address.slice(-4)}`
@@ -1636,7 +1674,7 @@ export function ThirdwebWalletInterface() {
                                   </p>
                                 </div>
                               </div>
-                              <Badge className={`${walletType === 'stellar' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                              <Badge className={`${isMiniPay && address ? 'bg-green-50 text-[#19B17A] border-[#19B17A]' : walletType === 'stellar' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
                                 Active
                               </Badge>
                             </div>
@@ -1645,13 +1683,15 @@ export function ThirdwebWalletInterface() {
                             <div className="p-3 bg-gray-50 rounded-lg">
                               <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-3">
-                                  <GlobeIcon className={`h-4 w-4 ${walletType === 'stellar' ? 'text-blue-500' : 'text-purple-500'}`} />
+                                  <GlobeIcon className={`h-4 w-4 ${isMiniPay && address ? 'text-[#19B17A]' : walletType === 'stellar' ? 'text-blue-500' : 'text-purple-500'}`} />
                                   <div>
                                     <p className="font-medium text-gray-900">
-                                      {walletType === 'stellar' ? 'Balance' : 'Network'}
+                                      {isMiniPay && address ? 'Network' : walletType === 'stellar' ? 'Balance' : 'Network'}
                                     </p>
                                     <p className="text-sm text-gray-600">
-                                      {walletType === 'stellar' 
+                                      {isMiniPay && address 
+                                        ? 'Celo Mainnet'
+                                        : walletType === 'stellar' 
                                         ? `${stellarBalance} XLM`
                                         : getNetworkName(chain ? (chain.chainId as number) : undefined)
                                       }
@@ -1659,7 +1699,7 @@ export function ThirdwebWalletInterface() {
                                   </div>
                                 </div>
                               </div>
-                              {walletType !== 'stellar' && (
+                              {walletType !== 'stellar' && !isMiniPay && (
                                 <div className="grid grid-cols-2 gap-2">
                                   <button
                                     onClick={() => {
@@ -1840,7 +1880,7 @@ export function ThirdwebWalletInterface() {
                     )}
                   </div>
                 </div>
-              ) : (
+              ) : !isMiniPay ? (
 
 
                 <div className="flex gap-2">
@@ -1876,10 +1916,10 @@ export function ThirdwebWalletInterface() {
                     className="border-[#19B17A] text-[#19B17A] hover:bg-[#19B17A] hover:text-white"
                   >
                     <WalletIcon className="w-4 h-4 mr-2" />
-                      Wallet Connect
+                      <span className="hidden sm:inline">Wallet </span>Connect
                   </Button>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
@@ -1894,9 +1934,14 @@ export function ThirdwebWalletInterface() {
           <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
             <CardContent className="pt-[10px] pb-[10px] px-4 text-center">
               
-              {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) && (
+              {((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
                 <div className="mb-2 flex items-center justify-center">
-                  {walletType === 'stellar' ? (
+                  {isMiniPay && address ? (
+                    <Badge variant="outline" className="text-[#19B17A] border-[#19B17A]">
+                      <div className="w-2 h-2 bg-[#19B17A] rounded-full mr-2"></div>
+                      Celo Mainnet
+                    </Badge>
+                  ) : walletType === 'stellar' ? (
                     <Badge variant="outline" className="text-blue-600 border-blue-200">
                       <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
                       Mainnet
@@ -1911,10 +1956,12 @@ export function ThirdwebWalletInterface() {
               )}
 
               {/* Wallet Address with Copy Icon */}
-              {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) && (
+              {((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
                 <div className="flex items-center justify-center gap-2 mb-2">
                   <p className="text-xs text-gray-600 font-mono">
-                    {walletType === 'stellar' && stellarAddress
+                    {isMiniPay && address
+                      ? `${address.slice(0, 6)}...${address.slice(-6)}`
+                      : walletType === 'stellar' && stellarAddress
                       ? `${stellarAddress.slice(0, 6)}...${stellarAddress.slice(-6)}`
                       : address
                       ? `${address.slice(0, 6)}...${address.slice(-6)}`
@@ -1923,7 +1970,7 @@ export function ThirdwebWalletInterface() {
                   </p>
                   <button
                     onClick={() => {
-                      const addressToCopy = walletType === 'stellar' ? stellarAddress : address
+                      const addressToCopy = isMiniPay ? address : walletType === 'stellar' ? stellarAddress : address
                       if (addressToCopy) {
                         navigator.clipboard.writeText(addressToCopy)
                         toast({
@@ -1997,6 +2044,7 @@ export function ThirdwebWalletInterface() {
                             </div>
                           ) : (
                             (() => {
+
                               const FIAT_CODES = new Set([
                                 "USD", "EUR", "GBP", "KES", "UGX", "TZS", "GHS", "NGN", "ZAR", "ETB", "AED", "ZMW", "JPY"
                               ])
@@ -2066,7 +2114,7 @@ export function ThirdwebWalletInterface() {
 
               </CardContent>
             </Card>
-           {! showTransactionForms && (
+           {!showTransactionForms && (
               <div className="grid grid-cols-3 gap-3 mb-6 sticky top-16 z-10 bg-white pt-2 pb-2">
                 <Button
                   variant="outline"
@@ -2078,7 +2126,10 @@ export function ThirdwebWalletInterface() {
                 >
                   <div className="flex items-center gap-1">
                     <SendIcon className="h-4 w-4" />
-                    <span className="text-xs">Send Money</span>
+                    <span className="text-xs">
+                      <span className="sm:hidden">Send</span>
+                      <span className="hidden sm:inline">Send Money</span>
+                    </span>
                   </div>
                 </Button>
 
@@ -2228,6 +2279,7 @@ export function ThirdwebWalletInterface() {
 
             {/* Tabs */}
        {!showTransactionForms && !showNotifications && (
+        
         <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
           <TabsList className="grid w-full grid-cols-2 bg-gray-100">
             <TabsTrigger
@@ -2235,18 +2287,19 @@ export function ThirdwebWalletInterface() {
               className="data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=inactive]:text-black hover:text-black cursor-pointer"
             >
               Overview
-                </TabsTrigger>
+            </TabsTrigger>
             <TabsTrigger
               value="transactions"
               className="data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=inactive]:text-black hover:text-black cursor-pointer"
             >
               Transactions
-                </TabsTrigger>
-              </TabsList>
+            </TabsTrigger>
+          </TabsList>
 
           <TabsContent value="overview" className="mt-1">
+            
             {/* Assets section - Only show when wallet is connected */}
-            {((isConnected && address) || (walletType === 'stellar' && stellarAddress)) && (
+            {((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
               <div className="mb-2">
                 <div className="px-0 py-2">
                   <h3 className="text-md font-bold text-gray-500 mb-1">
@@ -2554,48 +2607,6 @@ export function ThirdwebWalletInterface() {
 
 
 
-        {/* Footer Navigation Bar */}
-        {!showNotifications && (
-        <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-100 shadow-2xl px-8 h-[60px]">
-          <div className="flex items-center justify-between relative h-full">
-            {/* Home Button */}
-            <Button
-              variant="ghost"
-              className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
-              onClick={() => {
-                setActiveTab("overview")
-                setShowTransactionForms(false)
-                setShowNotifications(false)
-              }}
-            >
-              <HomeIcon className="h-6 w-6" />
-              <span className="text-xs font-medium">Home</span>
-            </Button>
-
-            <Button
-              className="flex flex-col items-center gap-1 h-16 w-16 rounded-full bg-gradient-to-r from-[#19B17A] to-[#15a06b] hover:from-[#158f68] hover:to-[#138f5f] text-white cursor-pointer -mt-10 shadow-lg shadow-green-200 transition-all duration-200 hover:shadow-xl hover:shadow-green-300 hover:scale-105"
-              onClick={() => setShowTransactionForms(true)}
-            >
-              <SendIcon className="h-6 w-6" />
-              <span className="text-xs font-medium">Send</span>
-            </Button>
-
-            {/* Notifications Button */}
-            <Button
-              variant="ghost"
-              className="flex flex-col items-center gap-1 h-14 px-6 text-gray-500 hover:text-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 rounded-xl"
-              onClick={() => {
-                setShowNotifications(true)
-                setShowTransactionForms(false)
-              }}
-            >
-              <BellIcon className="h-6 w-6" />
-              <span className="text-xs font-medium">Notifications</span>
-            </Button>
-            </div>
-          </div>
-        )}
-
         {/* Wallet Connection Modal */}
         {showWalletModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -2744,7 +2755,7 @@ export function ThirdwebWalletInterface() {
         )}
 
         {/* Fixed Bottom Navigation */}
-        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 z-50 w-full max-w-md bg-white border-t border-gray-200 rounded-t-xl shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 z-50 w-full max-w-md bg-white border-t border-gray-200 rounded-t-xl shadow-[0_-2px_10px_rgba(0,0,0,0.05)] max-h-[60px]">
           <div className="flex items-end justify-around px-6 pt-2 pb-[env(safe-area-inset-bottom,8px)]">
             {/* Home */}
             <button
