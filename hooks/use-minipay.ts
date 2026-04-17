@@ -10,10 +10,8 @@ export function useMiniPay() {
   useEffect(() => {
     const checkMiniPay = async () => {
       try {
-        
         // Check if window.ethereum exists and has MiniPay properties
         if (typeof window === 'undefined') {
-          console.log('[MiniPay] Window not available')
           setMiniPayCheckComplete(true)
           return
         }
@@ -22,7 +20,6 @@ export function useMiniPay() {
         
         // Method 1: Direct window.ethereum.isMiniPay check
         if (ethereum?.isMiniPay) {
-          console.log('[MiniPay] Detected via window.ethereum.isMiniPay')
           setIsMiniPay(true)
           setMiniPayVersion(ethereum.miniPayVersion || null)
           setMiniPayCheckComplete(true)
@@ -33,12 +30,9 @@ export function useMiniPay() {
         const connectorId = localStorage?.getItem('wagmi.connector') || ''
         const connectorName = localStorage?.getItem('wagmi.connectorName') || ''
         
-        console.log('[MiniPay] Connector check:', { connectorId, connectorName })
-        
         if (connectorId === 'walletConnect' || connectorName.includes('WalletConnect')) {
           // Additional check: WalletConnect with isMiniPay flag
           if (localStorage?.getItem('isMiniPay') === 'true') {
-            console.log('[MiniPay] Detected via WalletConnect + isMiniPay flag')
             setIsMiniPay(true)
             setMiniPayVersion(localStorage?.getItem('miniPayVersion') || null)
             setMiniPayCheckComplete(true)
@@ -49,13 +43,11 @@ export function useMiniPay() {
         // Method 3: Check userAgent for MiniPay
         const userAgent = navigator.userAgent
         if (userAgent.includes('Celo') || userAgent.includes('MiniPay')) {
-          console.log('[MiniPay] Detected via userAgent:', userAgent)
           setIsMiniPay(true)
           setMiniPayCheckComplete(true)
           return
         }
 
-        console.log('[MiniPay] Not detected - Standard wallet mode')
         setIsMiniPay(false)
         setMiniPayVersion(null)
         setMiniPayCheckComplete(true)

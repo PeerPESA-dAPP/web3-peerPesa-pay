@@ -117,19 +117,6 @@ interface ActivityFetchResult {
   mode: "stellar" | "evm-explorer" | "evm-rpc"
 }
 
-const mockTransactions: Transaction[] = [
-  // {
-  //   id: "1",
-  //   type: "buy",
-  //   amount: 0.025,
-  //   currency: "BTC",
-  //   fiatAmount: 1250.0,
-  //   date: "2024-01-15T10:30:00Z",
-  //   status: "completed",
-  // }
-]
-
-
 export function ThirdwebWalletInterface() {
   const searchParams = useSearchParams()
   const hasActiveNotifications = useHasActiveNotifications()
@@ -163,6 +150,7 @@ export function ThirdwebWalletInterface() {
   }, [hasUrlSwapParams])
 
 
+
   // Show MiniPay connection status toast
   useEffect(() => {
     if (miniPayCheckComplete) {
@@ -173,11 +161,7 @@ export function ThirdwebWalletInterface() {
         //   variant: "default",
         // })
       } else {
-        // toast({
-        //   title: "ℹ️ Regular Wallet Mode",
-        //   description: "MiniPay is not detected. Standard wallet connection is available.",
-        //   variant: "default",
-        // })
+        // title: "ℹ️ Regular Wallet Mode",
       }
     }
   }, [miniPayCheckComplete, isMiniPay, miniPayVersion])

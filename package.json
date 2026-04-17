@@ -6,7 +6,11 @@
     "build": "next build",
     "dev": "next dev -p 3008",
     "lint": "next lint",
-    "start": "next start -p 3008"
+    "start": "next start -p 3008",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:minipay": "jest __tests__/minipay-connect.test.js"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.9.5",
@@ -85,10 +89,15 @@
   },
   "devDependencies": {
     "@babel/preset-env": "^7.28.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "jest": "^30.3.0",
     "postcss": "^8.5",
+    "ts-jest": "^29.4.9",
     "typescript": "^5"
   }
 }
