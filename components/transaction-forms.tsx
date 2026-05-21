@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { API_BASE_URL, fetchExchangeRates } from "@/utils/api"
+import { API_BASE_URL, fetchExchangeRates, getCurrencyRate, fetchNetworksByChannelIds, fetchCoinRate, fetchTransactionFees, TransactionFeeResult, Network } from "@/utils/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -140,8 +140,11 @@ export function TransactionForms({  onBack,
   const [showSwapRateDetails, setShowSwapRateDetails] = useState(false)
   const [swapFromNetwork, setSwapFromNetwork] = useState("")
   const [swapToNetwork, setSwapToNetwork] = useState("")
-  const [sendNetworks, setSendNetworks] = useState<{ name: string; min: number; max: number }[]>([])
+  const [sendNetworks, setSendNetworks] = useState<{ name: string; min: number; max: number; channelIds: string[] }[]>([])
   const [sendNetworksLoading, setSendNetworksLoading] = useState(false)
+  const [payoutNetworks, setPayoutNetworks] = useState<Network[]>([])
+  const [payoutNetworksLoading, setPayoutNetworksLoading] = useState(false)
+  const [selectedPayoutNetwork, setSelectedPayoutNetwork] = useState("")
   const appliedInitialSwapParams = useRef(false)
   const appliedInitialChainParams = useRef(false)
 
@@ -248,6 +251,20 @@ export function TransactionForms({  onBack,
       ? cryptoNativeAssets.filter((c: any) => coinSupportsStellar(c))
       : cryptoNativeAssets.filter((c: any) => coinSupportsEvm(c))
 
+  // Send form token list: further filtered to the connected wallet's specific network,
+  // plus any token the wallet actually holds (balance > 0 in tokenBalances).
+  const sendAssetsForWallet = (() => {
+    if (!isWalletConnected) return cryptoNativeAssetsForWallet
+    if (walletNetwork) {
+      return cryptoNativeAssetsForWallet.filter((c: any) => {
+        const listedForNetwork = coinSupportsSpecificNetwork(c, walletNetwork)
+        const walletHoldsIt = tokenBalances && Number(tokenBalances[String(c.symbol || "").toUpperCase()] ?? 0) > 0
+        return listedForNetwork || walletHoldsIt
+      })
+    }
+    return cryptoNativeAssetsForWallet
+  })()
+
   const normalizeNetworkKey = (value: string): string =>
     value.toLowerCase().replace(/[\s_-]/g, "")
 
@@ -293,10 +310,10 @@ export function TransactionForms({  onBack,
 
   // Set default sendCurrency when crypto loads (for send mode)
   useEffect(() => {
-    if (activeTab === "send" && cryptoNativeAssetsForWallet.length > 0 && !cryptoNativeAssetsForWallet.some((c: any) => c.symbol === sendCurrency)) {
-      setSendCurrency(cryptoNativeAssetsForWallet[0]?.symbol ?? "")
+    if (activeTab === "send" && sendAssetsForWallet.length > 0 && !sendAssetsForWallet.some((c: any) => c.symbol === sendCurrency)) {
+      setSendCurrency(sendAssetsForWallet[0]?.symbol ?? "")
     }
-  }, [activeTab, cryptoNativeAssetsForWallet])
+  }, [activeTab, sendAssetsForWallet])
 
   // Set default buy currencies when data loads (buy mode)
   useEffect(() => {
@@ -455,16 +472,20 @@ export function TransactionForms({  onBack,
   const cryptoAssets: any[] = []
   
   // Fetch networks when receiveCurrency changes
-    // Advanced network fetching for send tab using channels
+    // Fetch channels filtered by currency + paymentMode for the send tab
     useEffect(() => {
       if (activeTab !== "send" || !paymentMode || !receiveCurrency) {
-        setSendNetworks([])
+        setSendNetworksLoading(false)
         return
       }
+      const channelType = paymentMode === "mobile" ? "momo" : "bank"
       setSendNetworksLoading(true)
+      setSelectedNetwork("")
+      setSelectedPayoutNetwork("")
+      setPayoutNetworks([])
       fetchChannels({
         rampType: 'withdraw',
-        channelType: paymentMode,
+        channelType,
         currency: receiveCurrency,
         status: 'active',
       }).finally(() => {
@@ -472,28 +493,52 @@ export function TransactionForms({  onBack,
       })
     }, [activeTab, paymentMode, receiveCurrency, fetchChannels])
 
-    // Derive sendNetworks from fetched channels
+    // Group channels by network, collecting channelIds + aggregated min/max
     useEffect(() => {
       if (!channels || channels.length === 0) {
         setSendNetworks([])
         return
       }
-      // Group channels by network, aggregate min/max from channel data
-      const grouped: Record<string, { name: string, min: number, max: number }> = {}
+      const grouped: Record<string, { name: string; min: number; max: number; channelIds: string[] }> = {}
       channels.forEach((ch) => {
         const name = ch.network || ch.name
         if (!name) return
+        const id = String(ch.id ?? ch.name)
         const min = Number(ch.minAmount ?? ch.min_amount ?? ch.min ?? 0)
         const max = Number(ch.maxAmount ?? ch.max_amount ?? ch.max ?? 0)
         if (!grouped[name]) {
-          grouped[name] = { name, min: min || 0, max: max || 0 }
+          grouped[name] = { name, min: min || 0, max: max || 0, channelIds: id ? [id] : [] }
         } else {
-          grouped[name].min = Math.min(grouped[name].min, min || 0)
-          grouped[name].max = Math.max(grouped[name].max, max || 0)
+          if (min) grouped[name].min = grouped[name].min ? Math.min(grouped[name].min, min) : min
+          if (max) grouped[name].max = Math.max(grouped[name].max, max)
+          if (id) grouped[name].channelIds.push(id)
         }
       })
       setSendNetworks(Object.values(grouped))
     }, [channels])
+
+    // Fetch sub-networks for the channel IDs of the selected payout network
+    useEffect(() => {
+      if (!selectedNetwork) {
+        setPayoutNetworks([])
+        setSelectedPayoutNetwork("")
+        return
+      }
+      const networkGroup = sendNetworks.find((n) => n.name === selectedNetwork)
+      const ids = networkGroup?.channelIds ?? []
+      if (!ids.length) {
+        setPayoutNetworks([])
+        setSelectedPayoutNetwork("")
+        return
+      }
+      setPayoutNetworksLoading(true)
+      fetchNetworksByChannelIds(ids)
+        .then((nets) => {
+          setPayoutNetworks(nets)
+          setSelectedPayoutNetwork(nets[0]?.name ?? "")
+        })
+        .finally(() => setPayoutNetworksLoading(false))
+    }, [selectedNetwork, sendNetworks])
   useEffect(() => {
     if (receiveCurrency) {
       console.log(`🔄 Fetching networks for currency: ${receiveCurrency}`)
@@ -631,6 +676,15 @@ export function TransactionForms({  onBack,
 
   // Helper: Fetch and calculate exchange rate for swap
   const [swapExchangeRate, setSwapExchangeRate] = useState<number | null>(null);
+  const [rateCountdown, setRateCountdown] = useState(240);
+  const [sendCoinRate, setSendCoinRate] = useState<number | null>(null);
+  const [sendCoinRateLoading, setSendCoinRateLoading] = useState(false);
+  const [sendFeeResult, setSendFeeResult] = useState<TransactionFeeResult | null>(null);
+  const [sendFeesLoading, setSendFeesLoading] = useState(false);
+  const [sendUsdDraft, setSendUsdDraft] = useState("");
+  const [isEditingSendUsd, setIsEditingSendUsd] = useState(false);
+  const [recipientAmountDraft, setRecipientAmountDraft] = useState("");
+  const [isEditingRecipientAmount, setIsEditingRecipientAmount] = useState(false);
 
   useEffect(() => {
     async function fetchRate() {
@@ -650,6 +704,107 @@ export function TransactionForms({  onBack,
     }
     if (activeTab === 'swap') fetchRate();
   }, [activeTab, fromCurrency, toCurrency]);
+
+  // Fetch live exchange rate for the send pair via GET /rates/:base/:quote
+  useEffect(() => {
+    if (activeTab !== "send" || !sendCurrency || !receiveCurrency) {
+      setSendCoinRate(null)
+      return
+    }
+    setSendCoinRateLoading(true)
+    fetchCoinRate(sendCurrency, receiveCurrency)
+      .then((data) => {
+        const rate = data?.price?.rate?.sale_rate
+        setSendCoinRate(typeof rate === "number" && Number.isFinite(rate) ? rate : null)
+      })
+      .finally(() => setSendCoinRateLoading(false))
+  }, [activeTab, sendCurrency, receiveCurrency])
+
+  // Fetch transaction fees from API (uses state directly to avoid forward-ref of derived consts)
+  useEffect(() => {
+    const amt = Number(sendAmount) || 0
+    if (activeTab !== "send" || !sendCurrency || !receiveCurrency || !sendCoinRate || amt <= 0) {
+      setSendFeeResult(null)
+      return
+    }
+    const gross = Math.round(amt * sendCoinRate)
+    if (!gross) return
+
+    // Resolve blockchain network ID for the sell currency inline
+    const asset = cryptoNativeAssetsForWallet.find((c: any) => c.symbol === sendCurrency)
+    const nets = getCoinNetworks(asset)
+    const netId = (() => {
+      if (!nets.length) return ""
+      if (walletNetwork) {
+        const m = nets.find((n: any) =>
+          normalizeNetworkKey(n.network || n.label || "").includes(normalizeNetworkKey(walletNetwork)) ||
+          normalizeNetworkKey(walletNetwork).includes(normalizeNetworkKey(n.network || n.label || ""))
+        )
+        return m?.id || nets[0]?.id || ""
+      }
+      return nets[0]?.id || ""
+    })()
+
+    setSendFeesLoading(true)
+    fetchTransactionFees({
+      from_currency: receiveCurrency,
+      to_currency: sendCurrency,
+      process: "send",
+      network: netId,
+      amount: gross,
+    })
+      .then((result) => setSendFeeResult(result))
+      .finally(() => setSendFeesLoading(false))
+  }, [activeTab, sendCurrency, receiveCurrency, sendAmount, sendCoinRate, walletNetwork, cryptoNativeAssetsForWallet])
+
+  // Countdown timer — resets when a new rate is fetched
+  useEffect(() => {
+    if (activeTab !== "send") return
+    setRateCountdown(240)
+    const interval = setInterval(() => {
+      setRateCountdown((prev) => (prev <= 1 ? 240 : prev - 1))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [activeTab, sendCurrency, receiveCurrency])
+
+  // Send form computed values (used in both form and review screen)
+  const sendBalance = getBalanceForSymbol(sendCurrency)
+  const sendCoinUsd = getCurrencyRate(allCurrencies, sendCurrency)
+  const receiveCoinUsd = getCurrencyRate(allCurrencies, receiveCurrency)
+  // Prefer live /rates API (sale_rate); fall back to USD-ratio from currency catalogue
+  const sendToReceiveRate =
+    sendCoinRate ??
+    (sendCoinUsd && receiveCoinUsd ? sendCoinUsd / receiveCoinUsd : null)
+  const parsedSendAmount = Number(sendAmount) || 0
+  const grossFiatAmount = parsedSendAmount * (sendToReceiveRate || 0)
+
+  // Resolve the blockchain network ID for the selected "You Sell" asset
+  const selectedSendAsset = cryptoNativeAssetsForWallet.find((c: any) => c.symbol === sendCurrency)
+  const sendAssetNetsAll = getCoinNetworks(selectedSendAsset)
+  const sendNetworkId = (() => {
+    if (!sendAssetNetsAll.length) return ""
+    if (walletNetwork) {
+      const match = sendAssetNetsAll.find((n: any) =>
+        normalizeNetworkKey(n.network || n.label || "").includes(normalizeNetworkKey(walletNetwork)) ||
+        normalizeNetworkKey(walletNetwork).includes(normalizeNetworkKey(n.network || n.label || ""))
+      )
+      return match?.id || sendAssetNetsAll[0]?.id || ""
+    }
+    return sendAssetNetsAll[0]?.id || ""
+  })()
+
+  // Fee from API; fall back to 2.5% of gross fiat if API hasn't responded
+  const feeInFiat = sendFeeResult?.fee ?? (grossFiatAmount * 0.025)
+  const feeCurrencyLabel = sendFeeResult?.feeCurrency || receiveCurrency || ""
+  const feePercentageLabel = sendFeeResult?.feePercentage != null
+    ? `${sendFeeResult.feePercentage}%`
+    : ""
+
+  const sendRecipientAmount = Math.max(0, grossFiatAmount - feeInFiat)
+  const hasInsufficientBalance = parsedSendAmount > 0 && parsedSendAmount > sendBalance
+  const selectedSendNetworkGroup = sendNetworks.find((n) => n.name === selectedNetwork)
+  const sendMinPayout = selectedSendNetworkGroup?.min || 0
+  const hasBelowMinPayout = sendRecipientAmount > 0 && sendMinPayout > 0 && sendRecipientAmount < sendMinPayout
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-gray-50 pb-7">
@@ -798,19 +953,29 @@ export function TransactionForms({  onBack,
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
                       <span className="text-gray-600">Exchange Rate</span>
-                      <span className="font-medium">--</span>
+                      <span className="font-medium">
+                        {sendToReceiveRate ? `1 ${sendCurrency} = ${sendToReceiveRate.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${receiveCurrency}` : "--"}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                      <span className="text-gray-600">Fees</span>
-                      <span className="font-medium">{formatFee(sendAmount, sendCurrency)}</span>
+                      <span className="text-gray-600">
+                        Fee{feePercentageLabel ? ` (${feePercentageLabel})` : ""}
+                      </span>
+                      <span className="font-medium">
+                        {feeInFiat > 0
+                          ? `${feeInFiat.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${feeCurrencyLabel}`
+                          : `0 ${feeCurrencyLabel}`}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center py-3 border-b border-gray-100">
                       <span className="text-gray-600">Transfer Time</span>
-                      <span className="font-medium">--</span>
+                      <span className="font-medium">{paymentMode === "mobile" ? "~5 mins" : "10 - 30 mins"}</span>
                     </div>
                     <div className="flex justify-between items-center py-3 bg-gray-50 px-4">
                       <span className="font-semibold">Total Receive</span>
-                      <span className="font-bold text-lg">0 {receiveCurrency}</span>
+                      <span className="font-bold text-lg text-[#19B17A]">
+                        {sendRecipientAmount > 0 ? sendRecipientAmount.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0"} {receiveCurrency}
+                      </span>
                     </div>
                   </>
                 )}
@@ -901,377 +1066,475 @@ export function TransactionForms({  onBack,
           <Card className="bg-white border-0 shadow-sm rounded-2xl">
             <CardContent className="p-3">
               {/* Send Tab Content */}
-              {activeTab === "send" && (
-                <div className="space-y-2">
-                  {/* Sell Card */}
-                  <div className="bg-white rounded-2xl p-3 border border-gray-200 shadow-sm">
-                    <p className="text-xs text-gray-400 mb-1">Spend</p>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          value={sendAmount}
-                          onChange={(e) => setSendAmount(e.target.value)}
-                          className="text-2xl font-bold border-0 p-0 h-auto bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
-                        />
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          ${sendAmount ? (Number(sendAmount) * 0.17).toFixed(2) : "0.00"}
-                        </p>
+              {activeTab === "send" && (() => {
+                const sendAssetNetwork = (() => {
+                  if (walletNetwork) return walletNetwork
+                  return sendAssetNetsAll[0]?.label || sendAssetNetsAll[0]?.network || ""
+                })()
+                const selectedReceiveAsset = fiatCurrencies.find((c: any) => c.symbol === receiveCurrency)
+
+                return (
+                  <div className="space-y-3">
+                    {/* Wallet status row */}
+                    {isWalletConnected ? (
+                      <div className="flex items-center justify-between bg-green-50 border border-green-100 rounded-xl px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2 h-2 rounded-full bg-[#19B17A] shrink-0" />
+                          <span className="text-xs font-medium text-gray-700 truncate">
+                            {connectedWallet
+                              ? `${connectedWallet.slice(0, 6)}…${connectedWallet.slice(-4)}`
+                              : "Wallet connected"}
+                          </span>
+                        </div>
+                        {walletNetwork && (
+                          <span className="text-[10px] font-semibold text-[#19B17A] bg-green-100 rounded-full px-2 py-0.5 shrink-0 ml-2">
+                            {walletNetwork}
+                          </span>
+                        )}
                       </div>
-                      <div className="shrink-0">
+                    ) : (
+                      <div className="flex items-center justify-between bg-gray-50 border border-dashed border-gray-200 rounded-xl px-3 py-2.5">
+                        <span className="text-xs text-gray-500">Connect wallet to see balances</span>
+                        <button
+                          type="button"
+                          onClick={onConnectWallet}
+                          className="text-xs font-semibold text-[#19B17A] hover:text-[#158f68] shrink-0 ml-2"
+                        >
+                          Connect
+                        </button>
+                      </div>
+                    )}
+
+                    {/* YOU SELL */}
+                    <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">You Sell</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-gray-500 font-medium">
+                            {sendBalance > 0 ? `${sendBalance.toFixed(4)} ${sendCurrency}` : `0 ${sendCurrency || ""}`}
+                          </span>
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 rounded-lg bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                            onClick={() => setSendAmount(sendBalance > 0 ? sendBalance.toString() : "")}
+                          >
+                            <span className="rounded bg-white/20 px-1 py-0.5 text-[9px] font-bold tracking-wider">MAX</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            value={sendAmount}
+                            min={0}
+                            max={sendBalance > 0 ? sendBalance : undefined}
+                            onChange={(e) => {
+                              const raw = Number(e.target.value) || 0
+                              const clamped = sendBalance > 0 ? Math.min(raw, sendBalance) : raw
+                              const val = e.target.value === "" ? "" : String(clamped)
+                              setSendAmount(val)
+                              if (!isEditingSendUsd) {
+                                const usdVal = sendCoinUsd ? clamped * sendCoinUsd : 0
+                                setSendUsdDraft(usdVal > 0 ? usdVal.toFixed(2) : "")
+                              }
+                            }}
+                            className="text-3xl font-bold border-0 p-0 h-auto bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
+                          />
+                          <div className="flex items-center gap-0.5 mt-0.5">
+                            <span className="text-xs text-gray-400">≈ $</span>
+                            <input
+                              type="number"
+                              placeholder="0.00"
+                              value={isEditingSendUsd ? sendUsdDraft : (sendCoinUsd && parsedSendAmount > 0 ? (parsedSendAmount * sendCoinUsd).toFixed(2) : "")}
+                              onFocus={() => {
+                                setIsEditingSendUsd(true)
+                                const usdVal = sendCoinUsd ? parsedSendAmount * sendCoinUsd : 0
+                                setSendUsdDraft(usdVal > 0 ? usdVal.toFixed(2) : "")
+                              }}
+                              onBlur={() => setIsEditingSendUsd(false)}
+                              onChange={(e) => {
+                                setSendUsdDraft(e.target.value)
+                                const usdVal = Number(e.target.value) || 0
+                                if (sendCoinUsd && usdVal > 0) {
+                                  const cryptoVal = usdVal / sendCoinUsd
+                                  const clamped = sendBalance > 0 ? Math.min(cryptoVal, sendBalance) : cryptoVal
+                                  setSendAmount(clamped.toFixed(6))
+                                  if (clamped < cryptoVal && sendCoinUsd) {
+                                    setSendUsdDraft((clamped * sendCoinUsd).toFixed(2))
+                                  }
+                                } else {
+                                  setSendAmount("")
+                                }
+                              }}
+                              className="text-xs text-gray-400 bg-transparent border-0 p-0 w-20 focus:outline-none focus:text-gray-700 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Token selector — floats right, max 40% */}
                         <Select value={sendCurrency} onValueChange={setSendCurrency}>
-                          <SelectTrigger className="border border-gray-200 rounded-full px-3 py-2 h-auto bg-gray-50 hover:bg-gray-100 min-w-[110px] focus:ring-0 [\border border-gray-200 rounded-full px-3 py-2 h-auto bg-gray-50 hover:bg-gray-100 min-w-[110px] focus:ring-0>svg:last-child]:hidden">
+                          <SelectTrigger className="border border-gray-200 rounded-xl px-3 py-2.5 h-auto bg-white shadow-sm w-full max-w-[40%] ml-auto focus:ring-0 [&>svg]:hidden">
                             <div className="flex items-center gap-2">
-                              <div className="relative w-6 h-6 rounded-full overflow-hidden bg-gray-200 shrink-0 flex items-center justify-center">
+                              <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
                                 <span className="text-[9px] font-bold text-blue-600">{sendCurrency?.slice(0, 2) || "--"}</span>
                                 {(() => {
-                                  const selectedAsset = cryptoNativeAssetsForWallet.find((c: any) => c.symbol === sendCurrency)
-                                  const iconUrl = selectedAsset ? getCurrencyIconUrl(selectedAsset) : null
+                                  const iconUrl = selectedSendAsset ? getCurrencyIconUrl(selectedSendAsset) : null
                                   return iconUrl ? (
                                     <img src={iconUrl} alt={sendCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} />
                                   ) : null
                                 })()}
                               </div>
-                              <span className="font-semibold text-gray-900 text-sm">{sendCurrency || "Select"}</span>
+                              <div className="flex flex-col items-start leading-tight">
+                                <span className="font-bold text-gray-900 text-sm">{sendCurrency || "Select"}</span>
+                                {sendAssetNetwork && (
+                                  <span className="text-[10px] text-gray-400 font-medium">{sendAssetNetwork}</span>
+                                )}
+                              </div>
+                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1" />
                             </div>
                           </SelectTrigger>
                           <SelectContent className="bg-white max-h-[300px]">
-                            {swapAssetsForSelectedNetwork && swapAssetsForSelectedNetwork.length > 0 ? (
-                              swapAssetsForSelectedNetwork.map((asset) => {
+                            {sendAssetsForWallet.length > 0 ? (
+                              sendAssetsForWallet.map((asset: any) => {
                                 const iconUrl = getCurrencyIconUrl(asset)
+                                const assetNets = getCoinNetworks(asset)
+                                const netLabel = walletNetwork || assetNets[0]?.label || assetNets[0]?.network || ""
                                 return (
                                   <SelectItem key={asset.symbol} value={asset.symbol} className="bg-white hover:bg-gray-50">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 w-full">
                                       <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
                                         {iconUrl && <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />}
                                       </div>
-                                      <span>{asset.symbol || asset.token_name}</span>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium">{asset.symbol}</div>
+                                        {netLabel && <div className="text-[10px] text-gray-400">{netLabel}</div>}
+                                      </div>
                                     </div>
                                   </SelectItem>
                                 )
                               })
                             ) : (
                               <div className="p-4 text-center text-sm text-gray-500">
-                                {isStellarWalletConnected ? "No Stellar-supported native tokens available." : "No native tokens available."}
+                                {isWalletConnected
+                                  ? `No supported tokens on ${walletNetwork || "this network"}`
+                                  : "Connect a wallet to see supported tokens"}
                               </div>
                             )}
                           </SelectContent>
                         </Select>
-                        <p className="text-xs text-gray-400 text-right mt-0.5 pr-1">
-                          {getBalanceForSymbol(sendCurrency).toFixed(6)} {sendCurrency}
-                        </p>
                       </div>
-                    </div>
-                  </div>
 
-                  {/* Arrow separator */}
-                  <div className="flex justify-center -my-0.5">
-                    <div className="w-7 h-7 rounded-full bg-green-100 border-4 border-white shadow flex items-center justify-center">
-                      <ArrowDownIcon className="h-3 w-3 text-green-600" />
-                    </div>
-                  </div>
-
-                  {/* Buy Card */}
-                  <div className="bg-white rounded-2xl p-3 border border-gray-200 shadow-sm">
-                    <p className="text-xs text-gray-400 mb-1">Recipient gets</p>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-2xl font-bold text-gray-900">
-                          {sendAmount ? (Number(sendAmount) * 0.17).toFixed(7) : "0.0000000"}
+                      {hasInsufficientBalance && (
+                        <p className="text-xs text-red-500 mt-2 font-medium">
+                          Insufficient balance. Available: {sendBalance.toFixed(4)} {sendCurrency}
                         </p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          ${sendAmount ? (Number(sendAmount) * 0.17).toFixed(2) : "0.00"}
-                        </p>
-                      </div>
-                      <div className="shrink-0">
-                        <Select value={receiveCurrency} onValueChange={setReceiveCurrency}>
-                          <SelectTrigger className="border border-gray-200 rounded-full px-3 py-2 h-auto bg-gray-50 hover:bg-gray-100 min-w-[110px] focus:ring-0 [\border border-gray-200 rounded-full px-3 py-2 h-auto bg-gray-50 hover:bg-gray-100 min-w-[110px] focus:ring-0>svg:last-child]:hidden">
-                            <div className="flex items-center gap-2">
-                              <div className="relative w-6 h-6 rounded-full overflow-hidden bg-gray-200 shrink-0 flex items-center justify-center">
-                                <span className="text-[9px] font-bold text-green-600">{receiveCurrency?.slice(0, 2) || "--"}</span>
-                                {(() => {
-                                  const iconUrl = getCurrencyIconUrl({ symbol: receiveCurrency })
-                                  return iconUrl ? (
-                                    <img src={iconUrl} alt={receiveCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} />
-                                  ) : null
-                                })()}
-                              </div>
-                              <span className="font-semibold text-gray-900 text-sm">{receiveCurrency || "Select"}</span>
-                            </div>
-                          </SelectTrigger>
-                          <SelectContent className="bg-white max-h-[300px]">
-                            {fiatCurrencies && fiatCurrencies.length > 0 ? (
-                              fiatCurrencies.map((currency) => {
-                                const iconUrl = getCurrencyIconUrl(currency)
-                                return (
-                                  <SelectItem key={currency.symbol} value={currency.symbol} className="bg-white hover:bg-gray-50">
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                                        {iconUrl && <img src={iconUrl} alt={currency.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />}
-                                      </div>
-                                      <span>{currency.symbol}</span>
-                                    </div>
-                                  </SelectItem>
-                                )
-                              })
-                            ) : (
-                              <div className="p-4 text-center text-sm text-gray-500">No currencies available</div>
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-gray-400 text-right mt-0.5 pr-1">0 {receiveCurrency}</p>
-                      </div>
+                      )}
                     </div>
-                  </div>
 
-                  {/* Rate details collapsible */}
-                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                    <button
-                      type="button"
-                      className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                      onClick={() => setShowSendRateDetails((v) => !v)}
-                    >
-                      <span>
-                        1 {sendCurrency || "--"} = {(0.17).toFixed(6)} {receiveCurrency || "--"}
-                      </span>
-                      <ChevronDownIcon
-                        className={`h-4 w-4 text-gray-500 transition-transform duration-200 ${showSendRateDetails ? "rotate-180" : ""}`}
-                      />
-                    </button>
-
-                    {showSendRateDetails && (
-                      <div className="border-t border-gray-100 px-3 py-2 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Price Impact</span>
-                          <span className="text-sm font-medium bg-green-50 text-green-700 px-2 py-0.5 rounded-full">~0.00%</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Expected output</span>
-                          <span className="text-sm font-medium text-gray-900">
-                            {sendAmount ? (Number(sendAmount) * 0.17).toFixed(7) : "0.0000000"} {receiveCurrency}
+                    {/* Exchange Rate Pill */}
+                    <div className="flex justify-center">
+                      <div className="flex items-center gap-2 bg-gray-100 rounded-full px-4 py-1.5 text-xs text-gray-600 font-medium">
+                        <RefreshCwIcon className={`h-3 w-3 text-[#19B17A] ${sendCoinRateLoading ? "animate-spin" : ""}`} />
+                        <span>
+                          {sendCoinRateLoading
+                            ? "Fetching rate…"
+                            : `1 ${sendCurrency || "--"} = ${sendToReceiveRate ? sendToReceiveRate.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "--"} ${receiveCurrency || "--"}`}
+                        </span>
+                        {!sendCoinRateLoading && (
+                          <span className="bg-[#19B17A] text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-1">
+                            {Math.floor(rateCountdown / 60)}:{String(rateCountdown % 60).padStart(2, "0")}
                           </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* RECIPIENT GETS */}
+                    <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200">
+                      <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase block mb-3">Recipient Gets</span>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={
+                              isEditingRecipientAmount
+                                ? recipientAmountDraft
+                                : sendRecipientAmount > 0
+                                  ? sendRecipientAmount.toFixed(2)
+                                  : ""
+                            }
+                            onFocus={() => {
+                              setIsEditingRecipientAmount(true)
+                              setRecipientAmountDraft(
+                                sendRecipientAmount > 0 ? sendRecipientAmount.toFixed(2) : ""
+                              )
+                            }}
+                            onBlur={() => setIsEditingRecipientAmount(false)}
+                            onChange={(e) => {
+                              setRecipientAmountDraft(e.target.value)
+                              const fiatVal = Number(e.target.value) || 0
+                              if (sendToReceiveRate && fiatVal > 0) {
+                                const crypto = fiatVal / sendToReceiveRate
+                                const clamped = sendBalance > 0 ? Math.min(crypto, sendBalance) : crypto
+                                setSendAmount(clamped.toFixed(6))
+                              } else if (!e.target.value) {
+                                setSendAmount("")
+                              }
+                            }}
+                            className="text-3xl font-bold text-gray-900 bg-transparent border-0 p-0 w-full focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          />
+                          {!isEditingRecipientAmount && sendRecipientAmount > 0 && receiveCurrency && (
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {sendRecipientAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} {receiveCurrency}
+                            </p>
+                          )}
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Fees (2.5%)</span>
-                          <span className="text-sm font-medium text-gray-900">{formatFee(sendAmount, sendCurrency)}</span>
+
+                        {/* Fiat currency selector — floats right, max 40% */}
+                        <div className="flex flex-col items-end gap-1 w-full max-w-[40%] ml-auto shrink-0">
+                          <Select value={receiveCurrency} onValueChange={setReceiveCurrency}>
+                            <SelectTrigger className="border border-gray-200 rounded-xl px-3 py-2.5 h-auto bg-white shadow-sm w-full focus:ring-0 [&>svg]:hidden">
+                              <div className="flex items-center gap-2 w-full">
+                                <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                  <span className="text-[9px] font-bold text-green-600">{receiveCurrency?.slice(0, 2) || "--"}</span>
+                                  {(() => {
+                                    const iconUrl = selectedReceiveAsset ? getCurrencyIconUrl(selectedReceiveAsset) : getCurrencyIconUrl({ symbol: receiveCurrency })
+                                    return iconUrl ? (
+                                      <img src={iconUrl} alt={receiveCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                    ) : null
+                                  })()}
+                                </div>
+                                <span className="font-bold text-gray-900 text-sm truncate">{receiveCurrency || "Select"}</span>
+                                <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-auto shrink-0" />
+                              </div>
+                            </SelectTrigger>
+                            <SelectContent className="bg-white max-h-[300px]">
+                              {fiatCurrencies.length > 0 ? (
+                                fiatCurrencies.map((currency: any) => {
+                                  const iconUrl = getCurrencyIconUrl(currency)
+                                  return (
+                                    <SelectItem key={currency.symbol} value={currency.symbol} className="bg-white hover:bg-gray-50">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                          {iconUrl && <img src={iconUrl} alt={currency.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />}
+                                        </div>
+                                        <span className="text-sm font-medium">{currency.symbol}</span>
+                                      </div>
+                                    </SelectItem>
+                                  )
+                                })
+                              ) : (
+                                <div className="p-4 text-center text-sm text-gray-500">No currencies available</div>
+                              )}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
-                    )}
-                  </div>
 
-                  {/* Payment Mode */}
-                  <div>
-                    <Label className="text-sm text-gray-500 mb-2 block">Payment Mode</Label>
-                    <Select value={paymentMode} onValueChange={setPaymentMode}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select payment method" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white">
-                        <SelectItem value="bank" className="bg-white hover:bg-gray-50">Bank Transfer</SelectItem>
-                        <SelectItem value="mobile" className="bg-white hover:bg-gray-50">Mobile Money</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      {hasBelowMinPayout && (
+                        <p className="text-xs text-red-500 mt-2 font-medium">
+                          Minimum payout is {sendMinPayout.toLocaleString()} {receiveCurrency}
+                        </p>
+                      )}
+                    </div>
 
-                  {/* Network Selection by Payment Mode & Fiat (Send) */}
-                  {activeTab === "send" && (
+                    {/* PAYMENT METHOD */}
                     <div>
-                      <Label className="text-sm text-gray-500 mb-2 block">Network</Label>
-                      <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder={sendNetworksLoading ? "Loading..." : "Select network"} />
+                      <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase block mb-2">Payment Method</span>
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Bank card */}
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMode("bank")}
+                          className={`relative rounded-xl border-2 p-3 text-left transition-all ${
+                            paymentMode === "bank"
+                              ? "border-[#19B17A] bg-green-50"
+                              : "border-gray-200 bg-white hover:border-gray-300"
+                          }`}
+                        >
+                          {paymentMode === "bank" && (
+                            <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-[#19B17A] flex items-center justify-center">
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
+                              </svg>
+                            </span>
+                          )}
+                          <div className="font-semibold text-sm text-gray-900 mb-0.5">Bank</div>
+                          <div className="text-[11px] text-gray-400">10 - 30 mins</div>
+                        </button>
+
+                        {/* Mobile card */}
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMode("mobile")}
+                          className={`relative rounded-xl border-2 p-3 text-left transition-all ${
+                            paymentMode === "mobile"
+                              ? "border-[#19B17A] bg-green-50"
+                              : "border-gray-200 bg-white hover:border-gray-300"
+                          }`}
+                        >
+                          {paymentMode === "mobile" && (
+                            <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-[#19B17A] flex items-center justify-center">
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
+                              </svg>
+                            </span>
+                          )}
+                          <div className="font-semibold text-sm text-gray-900 mb-0.5">Mobile</div>
+                          <div className="text-[11px] text-gray-400">5 mins</div>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* PAYOUT NETWORKS */}
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase block">Payout Networks</span>
+
+                      {/* Network selector — each entry aggregates channels by network name */}
+                      <Select
+                        value={selectedNetwork}
+                        onValueChange={(val) => {
+                          setSelectedNetwork(val)
+                          setSelectedPayoutNetwork("")
+                        }}
+                      >
+                        <SelectTrigger className="w-full rounded-xl border border-gray-200 bg-white h-12 px-4">
+                          {sendNetworksLoading ? (
+                            <span className="text-sm text-gray-400">Loading networks…</span>
+                          ) : selectedNetwork ? (
+                            (() => {
+                              const grp = sendNetworks.find((n) => n.name === selectedNetwork)
+                              return (
+                                <div className="flex items-center justify-between w-full gap-3">
+                                  <span className="text-sm font-medium text-gray-900">{selectedNetwork}</span>
+                                  {grp && (grp.min > 0 || grp.max > 0) && (
+                                    <span className="text-xs text-gray-400">
+                                      {grp.min > 0 ? `Min: ${grp.min.toLocaleString()}` : ""}
+                                      {grp.min > 0 && grp.max > 0 ? " · " : ""}
+                                      {grp.max > 0 ? `Max: ${grp.max.toLocaleString()}` : ""}
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            })()
+                          ) : (
+                            <span className="text-sm text-gray-400">
+                              {receiveCurrency ? "Select payout network" : "Select a recipient currency first"}
+                            </span>
+                          )}
                         </SelectTrigger>
                         <SelectContent className="bg-white max-h-[300px]">
                           {sendNetworksLoading ? (
-                            <div className="p-4 text-center text-sm text-gray-500">Loading networks...</div>
+                            <div className="p-4 text-center text-sm text-gray-500">Loading…</div>
                           ) : sendNetworks.length > 0 ? (
-                            sendNetworks.map((net) => (
-                              <SelectItem key={net.name} value={net.name} className="bg-white hover:bg-gray-50">
-                                <div className="flex items-center gap-2">
-                                  <span>{net.name}</span>
-                                  <span className="text-xs text-gray-400 ml-2">{net.min} - {net.max}</span>
+                            sendNetworks.map((grp) => (
+                              <SelectItem key={grp.name} value={grp.name} className="bg-white hover:bg-gray-50">
+                                <div className="flex items-center justify-between w-full gap-4">
+                                  <span className="font-medium">{grp.name}</span>
+                                  {(grp.min > 0 || grp.max > 0) && (
+                                    <span className="text-xs text-gray-400">
+                                      {grp.min > 0 ? `Min: ${grp.min.toLocaleString()}` : ""}
+                                      {grp.min > 0 && grp.max > 0 ? " · " : ""}
+                                      {grp.max > 0 ? `Max: ${grp.max.toLocaleString()}` : ""}
+                                    </span>
+                                  )}
                                 </div>
                               </SelectItem>
                             ))
                           ) : (
-                            <div className="p-4 text-center text-sm text-gray-500">No networks available for selected options</div>
+                            <div className="p-4 text-center text-sm text-gray-500">
+                              {receiveCurrency ? "No payout networks available" : "Select a recipient currency first"}
+                            </div>
                           )}
                         </SelectContent>
                       </Select>
+
+                      {/* Sub-network selector — populated from channelIds of the selected network */}
+                      {selectedNetwork && (
+                        <Select value={selectedPayoutNetwork} onValueChange={setSelectedPayoutNetwork}>
+                          <SelectTrigger className="w-full rounded-xl border border-gray-200 bg-white h-12 px-4">
+                            {payoutNetworksLoading ? (
+                              <span className="text-sm text-gray-400">Loading…</span>
+                            ) : selectedPayoutNetwork ? (
+                              <span className="text-sm font-medium text-gray-900">{selectedPayoutNetwork}</span>
+                            ) : (
+                              <span className="text-sm text-gray-400">Select routing network</span>
+                            )}
+                          </SelectTrigger>
+                          <SelectContent className="bg-white max-h-[300px]">
+                            {payoutNetworksLoading ? (
+                              <div className="p-4 text-center text-sm text-gray-500">Loading…</div>
+                            ) : payoutNetworks.length > 0 ? (
+                              payoutNetworks.map((net) => (
+                                <SelectItem key={net.id ?? net.name} value={net.name} className="bg-white hover:bg-gray-50">
+                                  <span className="font-medium">{net.name}</span>
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="p-4 text-center text-sm text-gray-500">No routing networks available</div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
-                  )}
-                  
-                  {/* Bank Fields */}
-                  {paymentMode === "bank" && (
-                    <>
-                      <div>
-                        <Label className="text-sm text-gray-500 mb-2 block">Bank Name</Label>
-                        <Select value={selectedBank} onValueChange={setSelectedBank}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select your bank" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-white max-h-[300px]">
-                            {bankNetworksLoading ? (
-                              <div className="p-4 text-center text-sm text-gray-500">Loading banks...</div>
-                            ) : bankNetworks.length > 0 ? (
-                              bankNetworks
-                                .filter(bank => bank.isActive !== false)
-                                .map((bank) => (
-                                  <SelectItem key={bank.id || bank.name} value={bank.name} className="bg-white hover:bg-gray-50">
-                                    {bank.name}
-                                  </SelectItem>
-                                ))
-                            ) : (
-                              <div className="p-4 text-center text-sm text-gray-500">No banks available for {receiveCurrency}</div>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
 
-                      <div>
-                        <Label className="text-sm text-gray-500 mb-2 block">Account Number</Label>
-                        <Input
-                          placeholder="Enter bank account number"
-                          value={bankAccountNumber}
-                          onChange={(e) => setBankAccountNumber(e.target.value)}
-                          className="w-full"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-full mt-2 border-[#19B17A] text-[#19B17A] hover:bg-[#19B17A] hover:text-white transition-colors"
-                          onClick={handleVerifyAccount}
-                          disabled={!bankAccountNumber || isVerifyingAccount}
-                        >
-                          {isVerifyingAccount ? (
-                            <>
-                              <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2" />
-                              Verifying...
-                            </>
+                    {/* Summary */}
+                    <div className="bg-gray-50 rounded-2xl border border-gray-100 divide-y divide-gray-100">
+                      <div className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm text-gray-500">
+                          Fee{feePercentageLabel ? ` (${feePercentageLabel})` : ""}
+                        </span>
+                        <span className="text-sm font-medium text-gray-900 flex items-center gap-1">
+                          {sendFeesLoading ? (
+                            <span className="flex items-center gap-1 text-gray-400">
+                              <RefreshCwIcon className="h-3 w-3 animate-spin" />
+                              Calculating…
+                            </span>
                           ) : (
-                            "Verify account number"
+                            feeInFiat > 0
+                              ? `${feeInFiat.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${feeCurrencyLabel}`
+                              : `0 ${feeCurrencyLabel}`
                           )}
-                        </Button>
+                        </span>
                       </div>
-
-                      <div>
-                        <Label className="text-sm text-gray-500 mb-2 block">Account Name</Label>
-                        <Input
-                          placeholder="Account name will appear after verification"
-                          value={bankAccountName}
-                          onChange={(e) => setBankAccountName(e.target.value)}
-                          className="w-full bg-gray-50"
-                          readOnly
-                        />
+                      <div className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm text-gray-500">Wallet balance</span>
+                        <span className="text-sm font-medium text-gray-900">
+                          {sendBalance.toFixed(4)} {sendCurrency || ""}
+                        </span>
                       </div>
-                    </>
-                  )}
-
-                  {/* Mobile Money Fields */}
-                  {paymentMode === "mobile" && (
-                    <>
-                      <div>
-                        <Label className="text-sm text-gray-500 mb-2 block">Mobile Network</Label>
-                        <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select mobile network" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-white max-h-[300px]">
-                            {mobileNetworksLoading ? (
-                              <div className="p-4 text-center text-sm text-gray-500">Loading mobile networks...</div>
-                            ) : mobileNetworks.length > 0 ? (
-                              mobileNetworks
-                                .filter(network => network.isActive !== false)
-                                .map((network) => (
-                                  <SelectItem key={network.id || network.name} value={network.name} className="bg-white hover:bg-gray-50">
-                                    {network.name}
-                                  </SelectItem>
-                                ))
-                            ) : (
-                              <div className="p-4 text-center text-sm text-gray-500">No mobile networks available for {receiveCurrency}</div>
-                            )}
-                          </SelectContent>
-                        </Select>
+                      <div className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm font-semibold text-gray-900">You receive</span>
+                        <span className="text-sm font-bold text-[#19B17A]">
+                          {sendRecipientAmount > 0 ? sendRecipientAmount.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0"} {receiveCurrency || ""}
+                        </span>
                       </div>
+                    </div>
 
-                      <div>
-                        <Label className="text-sm text-gray-500 mb-2 block">Phone Number</Label>
-                        {countriesLoading ? (
-                          <div className="flex items-center gap-2 text-sm text-gray-500">
-                            <div className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-[#19B17A] rounded-full" />
-                            Loading countries...
-                          </div>
-                        ) : (
-                          <PhoneInput
-                            international
-                            defaultCountry="US"
-                            value={phoneNumber}
-                            onChange={(value) => setPhoneNumber(value || "")}
-                            placeholder="Enter phone number"
-                            className="phone-input-custom"
-                            countries={
-                              countries.length > 0
-                                ? (countries
-                                    .filter(c => {
-                                      const isActive = c.isActive !== false && c.is_active !== false
-                                      const hasCode = c.alpha_2_code || c.code
-                                      return isActive && hasCode
-                                    })
-                                    .map(c => c.alpha_2_code || c.code) as any)
-                                : undefined
-                            }
-                          />
-                        )}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-full mt-2 border-[#19B17A] text-[#19B17A] hover:bg-[#19B17A] hover:text-white transition-colors"
-                          onClick={handleVerifyPhone}
-                          disabled={!phoneNumber || isVerifyingPhone}
-                        >
-                          {isVerifyingPhone ? (
-                            <>
-                              <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2" />
-                              Verifying...
-                            </>
-                          ) : (
-                            "Verify phone number"
-                          )}
-                        </Button>
-                      </div>
-
-                      <div>
-                        <Label className="text-sm text-gray-500 mb-2 block">Holder Name</Label>
-                        <Input
-                          placeholder="Holder name will appear after verification"
-                          value={phoneHolderName}
-                          onChange={(e) => setPhoneHolderName(e.target.value)}
-                          className="w-full bg-gray-50"
-                          readOnly
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {/* Connect Wallet / Send Button */}
-                  {isWalletConnected ? (
-                    <Button
-                      className="w-full bg-[#6c47ff] hover:bg-[#5a35e8] text-white py-6 rounded-2xl font-semibold text-base"
-                      onClick={handleNext}
-                    >
-                      Send Money
-                    </Button>
-                  ) : (
-                    <Button
-                      className="w-full bg-[#6c47ff] hover:bg-[#5a35e8] text-white py-6 rounded-2xl font-semibold text-base"
-                      onClick={onConnectWallet}
-                    >
-                      Connect Wallet
-                    </Button>
-                  )}
-                </div>
-              )}
+                    {/* Review Transfer / Connect Wallet */}
+                    {isWalletConnected ? (
+                      <Button
+                        className="w-full h-12 bg-[#19B17A] hover:bg-[#158f68] text-white rounded-xl font-semibold text-base flex items-center gap-2"
+                        onClick={handleNext}
+                        disabled={hasInsufficientBalance || hasBelowMinPayout || !sendAmount || !receiveCurrency}
+                      >
+                        <SendIcon className="h-4 w-4" />
+                        Review Transfer
+                      </Button>
+                    ) : (
+                      <Button
+                        className="w-full h-12 bg-[#19B17A] hover:bg-[#158f68] text-white rounded-xl font-semibold text-base"
+                        onClick={onConnectWallet}
+                      >
+                        Connect Wallet
+                      </Button>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Buy Tab Content */}
               {activeTab === "buy" && (
@@ -1425,7 +1688,7 @@ export function TransactionForms({  onBack,
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Fees (2.5%)</span>
+                          <span className="text-sm text-gray-600">Fees</span>
                           <span className="text-sm font-medium text-gray-900">{formatFee(sendAmount, receiveCurrency)}</span>
                         </div>
                         {walletNetwork && (
@@ -1600,14 +1863,14 @@ export function TransactionForms({  onBack,
                   {/* Connect Wallet / Buy Button */}
                   {isWalletConnected ? (
                     <Button
-                      className="w-full bg-[#6c47ff] hover:bg-[#5a35e8] text-white py-6 rounded-2xl font-semibold text-base"
+                      className="w-full rounded-[28px] bg-gradient-to-r from-[#6c47ff] to-[#4b2fd1] px-6 py-5 text-lg font-semibold text-white shadow-xl shadow-violet-500/20 transition-all duration-200 hover:from-[#5a3fe8] hover:to-[#4327c4]"
                       onClick={handleNext}
                     >
                       Buy Now
                     </Button>
                   ) : (
                     <Button
-                      className="w-full bg-[#6c47ff] hover:bg-[#5a35e8] text-white py-6 rounded-2xl font-semibold text-base"
+                      className="w-full rounded-[28px] bg-gradient-to-r from-[#6c47ff] to-[#4b2fd1] px-6 py-5 text-lg font-semibold text-white shadow-xl shadow-violet-500/20 transition-all duration-200 hover:from-[#5a3fe8] hover:to-[#4327c4]"
                       onClick={onConnectWallet}
                     >
                       Connect Wallet
@@ -1795,7 +2058,7 @@ export function TransactionForms({  onBack,
                           <span className="text-sm font-medium text-gray-900">{fromCurrency} &gt; {toCurrency} (100%)</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Fees (2.5%)</span>
+                          <span className="text-sm text-gray-600">Fees</span>
                           <span className="text-sm font-medium text-gray-900">{formatFee(fromAmount, fromCurrency)}</span>
                         </div>
                         {(swapFromNetwork || walletNetwork) && (
@@ -1811,14 +2074,14 @@ export function TransactionForms({  onBack,
                   {/* Connect Wallet / Swap Button */}
                   {isWalletConnected ? (
                     <Button
-                      className="w-full bg-[#6c47ff] hover:bg-[#5a35e8] text-white py-6 rounded-2xl font-semibold text-base"
+                      className="w-full rounded-[28px] bg-gradient-to-r from-[#6c47ff] to-[#4b2fd1] px-6 py-5 text-lg font-semibold text-white shadow-xl shadow-violet-500/20 transition-all duration-200 hover:from-[#5a3fe8] hover:to-[#4327c4]"
                       onClick={handleNext}
                     >
                       Swap Now
                     </Button>
                   ) : (
                     <Button
-                      className="w-full bg-[#6c47ff] hover:bg-[#5a35e8] text-white py-6 rounded-2xl font-semibold text-base"
+                      className="w-full rounded-[28px] bg-gradient-to-r from-[#6c47ff] to-[#4b2fd1] px-6 py-5 text-lg font-semibold text-white shadow-xl shadow-violet-500/20 transition-all duration-200 hover:from-[#5a3fe8] hover:to-[#4327c4]"
                       onClick={onConnectWallet}
                     >
                       Connect Wallet

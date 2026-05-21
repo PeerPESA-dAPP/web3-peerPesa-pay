@@ -53,6 +53,7 @@ import {
   fetchWalletAssets,
   formatAssetBalance,
   compareNativeCurrenciesWithWallet,
+  getAllSupportedCurrenciesForNetwork,
   type MatchedCurrency,
 } from "@/utils/assets"
 import { 
@@ -76,16 +77,23 @@ import {
   BellIcon,
   GlobeIcon,
   XIcon,
+  ShieldAlertIcon,
+  TagIcon,
+  CheckCircleIcon,
+  ZapIcon,
+  ShieldCheckIcon,
+  ChevronRightIcon,
 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { useMiniPay } from "@/hooks/use-minipay"
-import { WalletNotifications, useHasActiveNotifications, NotificationsPanel, useRecordToastNotifications, useNotificationCount } from "@/components/wallet-notifications"
+import { WalletNotifications, useHasActiveNotifications, NotificationsPanel, useRecordToastNotifications } from "@/components/wallet-notifications"
 import {
   parseSwapUrlParams,
   isSwapModeFromUrl,
   normalizeChainParam,
   normalizeTokenParam,
 } from "@/lib/swap-url-params"
+import { getCurrencyRate } from "@/utils/api"
 
 interface Transaction {
   id: string
@@ -100,11 +108,12 @@ interface Transaction {
 interface WalletActivityItem {
   id: string
   hash: string
-  type: "send" | "receive"
+  type: "transfer" | "swap"
+  direction: "out" | "in"
   amount: number
   asset: string
   timestamp: string
-  status: "completed" | "pending" | "failed"
+  status: "completed" | "failed"
   network: string
   counterparty?: string
 }
@@ -120,7 +129,6 @@ interface ActivityFetchResult {
 export function ThirdwebWalletInterface() {
   const searchParams = useSearchParams()
   const hasActiveNotifications = useHasActiveNotifications()
-  const notificationCount = useNotificationCount()
   useRecordToastNotifications()
   const { isMiniPay, miniPayVersion, miniPayCheckComplete } = useMiniPay()
   const [activeTab, setActiveTab] = useState("overview")
@@ -183,6 +191,8 @@ export function ThirdwebWalletInterface() {
 
   const [showTransactionForms, setShowTransactionForms] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [showTerms, setShowTerms] = useState(false)
+  const [showPrivacy, setShowPrivacy] = useState(false)
   const [notificationLimit, setNotificationLimit] = useState(8)
   const [activeFormService, setActiveFormService] = useState("send")
   const [transactionType, setTransactionType] = useState<"send" | "buy" | "swap">("send")
@@ -254,6 +264,7 @@ export function ThirdwebWalletInterface() {
   // ERC-20 token balances: symbol -> balance number
   const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({})
   const [tokenBalancesLoading, setTokenBalancesLoading] = useState(false)
+
 
   // ERC-20 balanceOf ABI fragment
   const erc20Abi = [
@@ -499,6 +510,25 @@ export function ThirdwebWalletInterface() {
 
     loadBalances()
   }, [address, chain?.chainId, walletType, currencies, getViemChain, getTokenContractForNetwork, fetchWalletTokenBalances])
+
+  // Keep native EVM token balance in sync with tokenBalances so getBalanceForSymbol works correctly
+  useEffect(() => {
+    if (!nativeBalance || !chain) return
+    const nativeSymbol = getNativeSymbolForChain(chain.chainId as number)
+    if (!nativeSymbol) return
+    const nativeBal = Number(nativeBalance.displayValue) || 0
+    setTokenBalances(prev => ({ ...prev, [nativeSymbol.toUpperCase()]: nativeBal }))
+  }, [nativeBalance, chain?.chainId])
+
+  // Sync Stellar balances into tokenBalances so getBalanceForSymbol works for Stellar wallets
+  useEffect(() => {
+    if (walletType !== 'stellar') return
+    setTokenBalances(prev => ({
+      ...prev,
+      XLM: stellarBalance,
+      USDC: usdcStellarBalance,
+    }))
+  }, [walletType, stellarBalance, usdcStellarBalance])
 
   // Function to check if wallet is available
   const isWalletAvailable = (walletName: string) => {
@@ -781,7 +811,9 @@ export function ThirdwebWalletInterface() {
           setStellarBalance(parseFloat(xlmBalance.balance))
         }
 
-        const usdcBalance = accountData.balances.find((balance: any) => balance.asset_type === 'usdc')
+        const usdcBalance = accountData.balances.find(
+          (balance: any) => balance.asset_code === 'USDC'
+        )
         if (usdcBalance) {
           setUsdcStellarBalance(parseFloat(usdcBalance.balance))
         }
@@ -930,11 +962,17 @@ export function ThirdwebWalletInterface() {
     }
   }, [])
   const connectionStatus = useConnectionStatus()
-  
+
   // Connect hook for direct wallet connection
   const connect = useConnect()
 
   const isConnected = connectionStatus === "connected"
+
+  // Prevent hydration mismatch: thirdweb/Stellar restore wallet state from
+  // localStorage synchronously on the client, so the first client render can
+  // differ from the server-rendered HTML. Defer wallet-dependent UI until after mount.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   // Sync EVM connection status — reset token balances when wallet disconnects
   useEffect(() => {
@@ -1110,18 +1148,23 @@ export function ThirdwebWalletInterface() {
   }
 
   const exchangeAmount = (amount: string, symbol: string, currency: string) => {
-     try{
-      const theRateGor = generalExchangeRates.filter(rate => rate.price?.base_coin === symbol && rate.price?.quote_coin === currency)
-      if(theRateGor.length > 0) {
-        const theTAmount: any = (Number(theRateGor[0].price?.marketcap_amount) * Number(amount)).toFixed(2)
-        return theTAmount;
+    try {
+      // Prefer sale_rate embedded in the supported-currencies list
+      const saleRate = getCurrencyRate(currencies, symbol)
+      if (saleRate !== null && saleRate > 0) {
+        return (saleRate * Number(amount)).toFixed(2)
+      }
+      // Fallback: generalExchangeRates (quote-currency specific)
+      const rateEntry = generalExchangeRates.find(
+        (rate: any) => rate.price?.base_coin === symbol && rate.price?.quote_coin === currency
+      )
+      if (rateEntry) {
+        return (Number(rateEntry.price?.marketcap_amount) * Number(amount)).toFixed(2)
       }
       return (0).toFixed(2)
-      
-     } catch(error) {
+    } catch {
       return (0).toFixed(2)
-     }
-        
+    }
   }
 
   const formatFiatExchangeRate = (value: number): string => {
@@ -1139,6 +1182,10 @@ export function ThirdwebWalletInterface() {
     const quoteCurrency = selectedCurrency || "USD"
 
     const getQuoteRate = (symbol: string) => {
+      // Prefer sale_rate from the supported-currencies list
+      const saleRate = getCurrencyRate(currencies, symbol)
+      if (saleRate !== null && saleRate > 0) return saleRate
+      // Fallback: generalExchangeRates
       const r = generalExchangeRates.find(
         (rate: any) => rate.price?.base_coin === symbol && rate.price?.quote_coin === quoteCurrency
       )
@@ -1266,159 +1313,152 @@ export function ThirdwebWalletInterface() {
         const amount = Number(record?.amount || 0)
         if (!Number.isFinite(amount) || amount <= 0) return null
 
-        const isSend = from === lowerAddress
+        const isOut = from === lowerAddress
         const asset = record?.asset_type === "native" ? "XLM" : (record?.asset_code || "ASSET")
 
         return {
           id: String(record?.id || record?.paging_token || record?.transaction_hash || crypto.randomUUID()),
           hash: String(record?.transaction_hash || ""),
-          type: isSend ? "send" : "receive",
+          type: "transfer",
+          direction: isOut ? "out" : "in",
           amount,
           asset,
           timestamp: String(record?.created_at || new Date().toISOString()),
           status: "completed",
           network: "Stellar",
-          counterparty: isSend ? to : from,
+          counterparty: isOut ? to : from,
         } as WalletActivityItem
       })
       .filter((item: WalletActivityItem | null): item is WalletActivityItem => Boolean(item))
 
     const nextCursor = records.length > 0 ? String(records[records.length - 1]?.paging_token || "") : null
-    return {
-      items,
-      hasMore: records.length >= 25,
-      nextCursor,
-      mode: "stellar",
-    }
+    return { items, hasMore: records.length >= 25, nextCursor, mode: "stellar" }
   }
 
   const fetchEvmActivity = async (
     walletAddress: string,
     page: number,
-    rpcFromBlock?: number | null,
   ): Promise<ActivityFetchResult> => {
-    const networkName = getNetworkName(chain ? (chain.chainId as number) : undefined)
+    const chainId = chain ? (chain.chainId as number) : 0
+    const networkName = getNetworkName(chainId)
+    const nativeSym = getNativeSymbolForChain(chainId)
     const lowerAddress = walletAddress.toLowerCase()
 
+    const knownExplorers: Record<number, string> = {
+      42220: 'https://api.celoscan.io/api',
+      1: 'https://api.etherscan.io/api',
+      137: 'https://api.polygonscan.com/api',
+      42161: 'https://api.arbiscan.io/api',
+      10: 'https://api-optimistic.etherscan.io/api',
+      8453: 'https://api.basescan.org/api',
+      56: 'https://api.bscscan.com/api',
+      43114: 'https://api.snowtrace.io/api',
+    }
     const explorerApiUrl =
       (chain as any)?.blockExplorers?.default?.apiUrl ||
-      (chain as any)?.explorers?.[0]?.apiUrl ||
-      // Known explorer API URLs as fallback
-      (() => {
-        const chainId = chain ? (chain.chainId as number) : 0
-        const knownExplorers: Record<number, string> = {
-          42220: 'https://api.celoscan.io/api',
-          1: 'https://api.etherscan.io/api',
-          137: 'https://api.polygonscan.com/api',
-          42161: 'https://api.arbiscan.io/api',
-          10: 'https://api-optimistic.etherscan.io/api',
-          8453: 'https://api.basescan.org/api',
-          56: 'https://api.bscscan.com/api',
-          43114: 'https://api.snowtrace.io/api',
-        }
-        return knownExplorers[chainId] || null
-      })()
+      knownExplorers[chainId] ||
+      null
 
-    if (explorerApiUrl) {
-      try {
-        const explorerResponse = await fetch(
-          `${explorerApiUrl}?module=account&action=txlist&address=${walletAddress}&sort=desc&page=${page}&offset=25`
-        )
-        if (explorerResponse.ok) {
-          const explorerData = await explorerResponse.json()
-          const results = Array.isArray(explorerData?.result) ? explorerData.result : []
-          if (results.length > 0) {
-            return {
-              items: results.map((tx: any) => {
-              const from = String(tx?.from || "").toLowerCase()
-              const to = String(tx?.to || "").toLowerCase()
-              const wei = Number(tx?.value || 0)
-              const amount = wei > 0 ? wei / 1e18 : 0
-              const txStatus = tx?.txreceipt_status === "0" || tx?.isError === "1" ? "failed" : "completed"
-              return {
-                id: String(tx?.hash || `${tx?.blockNumber}-${tx?.nonce}`),
-                hash: String(tx?.hash || ""),
-                type: from === lowerAddress ? "send" : "receive",
-                amount,
-                asset: getNativeSymbolForChain(chain ? (chain.chainId as number) : undefined),
-                timestamp: tx?.timeStamp
-                  ? new Date(Number(tx.timeStamp) * 1000).toISOString()
-                  : new Date().toISOString(),
-                status: txStatus,
-                network: networkName,
-                counterparty: from === lowerAddress ? to : from,
-              } as WalletActivityItem
-              }),
-              hasMore: results.length >= 25,
-              mode: "evm-explorer",
-            }
-          }
+    if (!explorerApiUrl) return { items: [], hasMore: false, mode: "evm-explorer" }
+
+    const base = `${explorerApiUrl}?address=${walletAddress}&sort=desc&page=${page}&offset=25`
+
+    // Fetch normal txns (native transfers + contract calls) and ERC-20 transfers in parallel
+    const [normalRes, tokenRes] = await Promise.allSettled([
+      fetch(`${base}&module=account&action=txlist`).then(r => r.json()),
+      fetch(`${base}&module=account&action=tokentx`).then(r => r.json()),
+    ])
+
+    const normalTxs: any[] = (normalRes.status === 'fulfilled' && Array.isArray(normalRes.value?.result))
+      ? normalRes.value.result : []
+    const tokenTxs: any[] = (tokenRes.status === 'fulfilled' && Array.isArray(tokenRes.value?.result))
+      ? tokenRes.value.result : []
+
+    const items: WalletActivityItem[] = []
+    const seen = new Set<string>()
+
+    // ERC-20 token transfers → "transfer"
+    for (const tx of tokenTxs) {
+      const key = `${tx.hash}_tok_${tx.tokenSymbol}_${tx.value}`
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      const from = String(tx.from || '').toLowerCase()
+      const isOut = from === lowerAddress
+      const rawAmt = BigInt(tx.value || '0')
+      const decimals = Number(tx.tokenDecimal || 18)
+      const amount = Number(formatUnits(rawAmt, decimals))
+      if (amount <= 0) continue
+
+      items.push({
+        id: key,
+        hash: String(tx.hash || ''),
+        type: 'transfer',
+        direction: isOut ? 'out' : 'in',
+        amount,
+        asset: tx.tokenSymbol || 'TOKEN',
+        timestamp: tx.timeStamp ? new Date(Number(tx.timeStamp) * 1000).toISOString() : new Date().toISOString(),
+        status: 'completed',
+        network: networkName,
+        counterparty: isOut ? String(tx.to || '').toLowerCase() : from,
+      })
+    }
+
+    // Build a set of hashes that already have token transfers (likely swaps)
+    const hashesWithTokens = new Set(tokenTxs.map((t: any) => String(t.hash || '')))
+
+    // Normal txns: swap (has input data) or native transfer (value > 0, no input)
+    for (const tx of normalTxs) {
+      const hash = String(tx.hash || '')
+      const hasInput = tx.input && tx.input !== '0x'
+      const wei = BigInt(tx.value || '0')
+      const amount = Number(formatUnits(wei, 18))
+      const failed = tx.isError === '1' || tx.txreceipt_status === '0'
+      const from = String(tx.from || '').toLowerCase()
+      const isOut = from === lowerAddress
+
+      if (hasInput && hashesWithTokens.has(hash)) {
+        // Contract interaction that moved tokens → swap
+        const key = `${hash}_swap`
+        if (!seen.has(key)) {
+          seen.add(key)
+          items.push({
+            id: key,
+            hash,
+            type: 'swap',
+            direction: isOut ? 'out' : 'in',
+            amount,
+            asset: nativeSym,
+            timestamp: tx.timeStamp ? new Date(Number(tx.timeStamp) * 1000).toISOString() : new Date().toISOString(),
+            status: failed ? 'failed' : 'completed',
+            network: networkName,
+            counterparty: String(tx.to || '').toLowerCase(),
+          })
         }
-      } catch {
+      } else if (!hasInput && amount > 0) {
+        // Plain native transfer
+        const key = `${hash}_nat`
+        if (!seen.has(key)) {
+          seen.add(key)
+          items.push({
+            id: key,
+            hash,
+            type: 'transfer',
+            direction: isOut ? 'out' : 'in',
+            amount,
+            asset: nativeSym,
+            timestamp: tx.timeStamp ? new Date(Number(tx.timeStamp) * 1000).toISOString() : new Date().toISOString(),
+            status: failed ? 'failed' : 'completed',
+            network: networkName,
+            counterparty: isOut ? String(tx.to || '').toLowerCase() : from,
+          })
+        }
       }
     }
 
-    const rawRpcUrl = (chain as any)?.rpc?.[0]
-    const rpcUrl = resolveRpcUrl(rawRpcUrl)
-    if (!rpcUrl) return { items: [], hasMore: false, mode: "evm-rpc" as const }
-
-    const rpcCall = async (method: string, params: any[]) => {
-      const rpcResponse = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      })
-      const rpcData = await rpcResponse.json()
-      return rpcData?.result
-    }
-
-    const latestHex = await rpcCall("eth_blockNumber", [])
-    if (!latestHex) return { items: [], hasMore: false, nextBlock: null, mode: "evm-rpc" }
-    const latest = Number.parseInt(latestHex, 16)
-    if (!Number.isFinite(latest)) return { items: [], hasMore: false, nextBlock: null, mode: "evm-rpc" }
-
-    const startBlock = rpcFromBlock == null ? latest : rpcFromBlock
-    const blockNumbers = Array.from({ length: 5 }, (_, idx) => startBlock - idx).filter((n) => n >= 0)
-    // Fetch blocks sequentially to avoid 429 rate limiting
-    const blocks: any[] = []
-    for (const bn of blockNumbers) {
-      const block = await rpcCall("eth_getBlockByNumber", [`0x${bn.toString(16)}`, true])
-      blocks.push(block)
-    }
-
-    const items: WalletActivityItem[] = []
-    blocks.forEach((block: any) => {
-      const ts = block?.timestamp ? new Date(Number.parseInt(block.timestamp, 16) * 1000).toISOString() : new Date().toISOString()
-      const txs = Array.isArray(block?.transactions) ? block.transactions : []
-      txs.forEach((tx: any) => {
-        const from = String(tx?.from || "").toLowerCase()
-        const to = String(tx?.to || "").toLowerCase()
-        if (from !== lowerAddress && to !== lowerAddress) return
-        const valueHex = String(tx?.value || "0x0")
-        const amount = Number.parseInt(valueHex, 16) / 1e18
-        items.push({
-          id: String(tx?.hash || `${block?.number}-${tx?.nonce}`),
-          hash: String(tx?.hash || ""),
-          type: from === lowerAddress ? "send" : "receive",
-          amount: Number.isFinite(amount) ? amount : 0,
-          asset: getNativeSymbolForChain(chain ? (chain.chainId as number) : undefined),
-          timestamp: ts,
-          status: "completed",
-          network: networkName,
-          counterparty: from === lowerAddress ? to : from,
-        })
-      })
-    })
-
-    const sorted = items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    const minScannedBlock = blockNumbers.length > 0 ? Math.min(...blockNumbers) : -1
-    const nextBlock = minScannedBlock > 0 ? minScannedBlock - 1 : null
-    return {
-      items: sorted,
-      hasMore: nextBlock != null,
-      nextBlock,
-      mode: "evm-rpc",
-    }
+    items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    const hasMore = normalTxs.length >= 25 || tokenTxs.length >= 25
+    return { items, hasMore, mode: "evm-explorer" }
   }
 
   const loadInitialWalletActivity = async () => {
@@ -1448,12 +1488,11 @@ export function ThirdwebWalletInterface() {
         setStellarActivityCursor(result.nextCursor || null)
         setWalletActivityMode(result.mode)
       } else if (hasEvm && address) {
-        const result = await fetchEvmActivity(address, 1, null)
+        const result = await fetchEvmActivity(address, 1)
         setWalletActivity(result.items)
         setWalletActivityHasMore(result.hasMore)
         setWalletActivityMode(result.mode)
         setEvmActivityPage(2)
-        setEvmRpcNextBlock(result.nextBlock ?? null)
       }
     } catch (error: any) {
       setWalletActivity([])
@@ -1475,15 +1514,11 @@ export function ThirdwebWalletInterface() {
         setWalletActivityHasMore(result.hasMore)
         setStellarActivityCursor(result.nextCursor || null)
       } else if ((walletActivityMode === "evm-explorer" || walletActivityMode === "evm-rpc") && address) {
-        const result = await fetchEvmActivity(address, evmActivityPage, evmRpcNextBlock)
+        const result = await fetchEvmActivity(address, evmActivityPage)
         setWalletActivity((prev) => [...prev, ...result.items])
         setWalletActivityHasMore(result.hasMore)
         setWalletActivityMode(result.mode)
-        if (result.mode === "evm-explorer") {
-          setEvmActivityPage((prev) => prev + 1)
-        } else {
-          setEvmRpcNextBlock(result.nextBlock ?? null)
-        }
+        setEvmActivityPage((prev) => prev + 1)
       }
     } catch (error: any) {
       setWalletActivityError(error?.message || "Failed to load more activity")
@@ -1539,17 +1574,17 @@ export function ThirdwebWalletInterface() {
   }, [activeTab, walletActivity.length, overviewTxVisible])
 
   useEffect(() => {
-    if (activeTab === "overview" || activeTab === "transactions" || activeTab === "notifications") {
+    if (activeTab === "overview" || activeTab === "transactions" || activeTab === "notifications" || showNotifications) {
       loadInitialWalletActivity()
     }
-  }, [activeTab, walletType, stellarAddress, isConnected, address, chain?.chainId])
+  }, [activeTab, showNotifications, walletType, stellarAddress, isConnected, address, chain?.chainId])
 
   const totalSentActivity = walletActivity
-    .filter((item) => item.type === "send")
+    .filter((item) => item.direction === "out")
     .reduce((sum, item) => sum + item.amount, 0)
 
   const totalReceivedActivity = walletActivity
-    .filter((item) => item.type === "receive")
+    .filter((item) => item.direction === "in")
     .reduce((sum, item) => sum + item.amount, 0)
 
   const averageActivity = walletActivity.length > 0
@@ -1570,8 +1605,10 @@ export function ThirdwebWalletInterface() {
             </div>
 
             <div className="flex items-center space-x-3">
-              {/* Show connected wallet info based on wallet type */}
-              {(isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address) ? (
+              {/* Show connected wallet info based on wallet type.
+                  `mounted` guard prevents server/client HTML mismatch — thirdweb
+                  restores wallet from localStorage synchronously before hydration. */}
+              {mounted && ((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) ? (
                 <div className="flex items-center space-x-2">
                   {walletType === 'stellar' && stellarAddress ? (
                     // Stellar wallet connected
@@ -1914,11 +1951,11 @@ export function ThirdwebWalletInterface() {
       {/* Old UI Body */}
       <div className="max-w-md mx-auto min-h-screen bg-white pb-20">
         {/* Balance Card */}
-        <div className="px-6 pt-8">
+        {!showNotifications && !showTerms && !showPrivacy && <div className="px-6 pt-8">
           <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
             <CardContent className="pt-[10px] pb-[10px] px-4 text-center">
               
-              {((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
+              {mounted && ((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
                 <div className="mb-2 flex items-center justify-center">
                   {isMiniPay && address ? (
                     <Badge variant="outline" className="text-[#19B17A] border-[#19B17A]">
@@ -1940,7 +1977,7 @@ export function ThirdwebWalletInterface() {
               )}
 
               {/* Wallet Address with Copy Icon */}
-              {((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
+              {mounted && ((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
                 <div className="flex items-center justify-center gap-2 mb-2">
                   <p className="text-xs text-gray-600 font-mono">
                     {isMiniPay && address
@@ -2098,7 +2135,7 @@ export function ThirdwebWalletInterface() {
 
               </CardContent>
             </Card>
-           {!showTransactionForms && (
+           {!showTransactionForms && !showTerms && !showPrivacy && (
               <div className="grid grid-cols-3 gap-3 mb-6 sticky top-16 z-10 bg-white pt-2 pb-2">
                 <Button
                   variant="outline"
@@ -2143,90 +2180,154 @@ export function ThirdwebWalletInterface() {
                   </div>
                 </Button>
               </div>
-           )} 
-      </div>
+           )}
+      </div>}
 
-        
-
-      {/* Notifications View */}
+      {/* Activities View */}
       {showNotifications && (() => {
-        const notificationsData = [
-          {
-            date: new Date().toISOString().slice(0, 10),
-            items: [
-              { id: 1, title: "Deposit received", description: "You received 0.5 ETH.", time: "09:30" },
-              { id: 2, title: "Withdrawal processed", description: "Your withdrawal to bank was successful.", time: "08:15" },
-              { id: 4, title: "Rate alert", description: "ETH/USD rate changed significantly.", time: "07:00" },
-              { id: 5, title: "Transfer complete", description: "Your transfer of 100 USDT was completed.", time: "06:45" },
-              { id: 6, title: "Security alert", description: "New login detected from your account.", time: "05:30" },
-              { id: 7, title: "Promo available", description: "Get 0% fees on your next transaction.", time: "04:15" },
-            ],
-          },
-          {
-            date: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
-            items: [
-              { id: 3, title: "New offer available", description: "Check out the latest rates.", time: "17:40" },
-              { id: 8, title: "Deposit confirmed", description: "Your deposit of 1 ETH was confirmed.", time: "14:20" },
-              { id: 9, title: "Swap completed", description: "Swapped 0.5 ETH to 900 USDT.", time: "12:00" },
-              { id: 10, title: "Withdrawal initiated", description: "Withdrawal of 200 USDT initiated.", time: "10:30" },
-            ],
-          },
-          {
-            date: new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10),
-            items: [
-              { id: 11, title: "KYC approved", description: "Your identity verification was approved.", time: "16:00" },
-              { id: 12, title: "New feature", description: "Try our new swap feature with lower fees.", time: "09:00" },
-            ],
-          },
-        ]
-        // Flatten all notifications and apply limit
-        const allItems = notificationsData.flatMap((group) => group.items.map((item) => ({ ...item, date: group.date })))
-        const visibleItems = allItems.slice(0, notificationLimit)
-        const hasMore = allItems.length > notificationLimit
-        // Re-group visible items by date
-        const groupedVisible = visibleItems.reduce<Record<string, typeof visibleItems>>((acc, item) => {
-          if (!acc[item.date]) acc[item.date] = []
-          acc[item.date].push(item)
+        const getActivityIcon = (type: string, direction: string) => {
+          if (type === 'swap')   return { Icon: RefreshCwIcon, bg: 'bg-blue-100',   color: 'text-blue-600'  }
+          if (direction === 'out') return { Icon: ArrowUpIcon,   bg: 'bg-red-100',    color: 'text-red-500'   }
+          return                        { Icon: ArrowDownIcon, bg: 'bg-green-100',  color: 'text-green-600' }
+        }
+
+        const isWalletReady = !!(address || (walletType === 'stellar' && stellarAddress))
+
+        // Group visible items by date (derive from timestamp)
+        const visibleItems = walletActivity.slice(0, notificationLimit)
+        const grouped = visibleItems.reduce<Record<string, WalletActivityItem[]>>((acc, item) => {
+          const date = item.timestamp ? item.timestamp.slice(0, 10) : 'unknown'
+          if (!acc[date]) acc[date] = []
+          acc[date].push(item)
           return acc
         }, {})
+
         return (
         <div className="px-6 py-8 pb-24">
           <div className="flex items-center mb-6">
             <Button variant="ghost" size="sm" className="mr-2 cursor-pointer" onClick={() => { setShowNotifications(false); setNotificationLimit(8) }}>
               <ChevronLeftIcon className="h-5 w-5" />
             </Button>
-            <h2 className="text-xl font-bold text-left flex-1">Notifications</h2>
+            <h2 className="text-xl font-bold text-left flex-1">Activities</h2>
+            {walletActivityLoading && (
+              <RefreshCwIcon className="h-4 w-4 text-gray-400 animate-spin mr-1" />
+            )}
           </div>
-          {Object.entries(groupedVisible).map(([date, items]) => {
+
+          {/* No wallet connected */}
+          {!isWalletReady && (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
+                <WalletIcon className="h-6 w-6 text-gray-400" />
+              </div>
+              <p className="font-medium text-gray-700">No wallet connected</p>
+              <p className="text-sm text-gray-400">Connect a wallet to see your transaction history.</p>
+            </div>
+          )}
+
+          {/* Error state */}
+          {isWalletReady && walletActivityError && (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <p className="text-sm text-red-500">{walletActivityError}</p>
+              <Button variant="outline" size="sm" onClick={() => loadInitialWalletActivity()}>Retry</Button>
+            </div>
+          )}
+
+          {/* Loading skeleton */}
+          {isWalletReady && walletActivityLoading && walletActivity.length === 0 && (
+            <div className="space-y-3">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 flex items-start gap-3 animate-pulse">
+                  <div className="h-10 w-10 rounded-xl bg-gray-100 shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 bg-gray-100 rounded w-2/3" />
+                    <div className="h-3 bg-gray-100 rounded w-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Empty state */}
+          {isWalletReady && !walletActivityLoading && !walletActivityError && walletActivity.length === 0 && (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
+                <BellIcon className="h-6 w-6 text-gray-400" />
+              </div>
+              <p className="font-medium text-gray-700">No transactions yet</p>
+              <p className="text-sm text-gray-400">Your on-chain activity will appear here.</p>
+            </div>
+          )}
+
+          {/* Transaction list */}
+          {!walletActivityLoading && Object.entries(grouped).map(([date, items]) => {
             const today = new Date()
             const d = new Date(date)
-            const label =
-              d.getFullYear() === today.getFullYear() &&
-              d.getMonth() === today.getMonth() &&
-              d.getDate() === today.getDate()
-                ? "Today"
-                : d.toLocaleDateString()
+            const isToday = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()
+            const label = isToday ? "Today" : d.toLocaleDateString()
             return (
               <div key={date} className="mb-6">
                 <div className="text-xs font-semibold text-gray-500 mb-2 pl-1">{label}</div>
                 <div className="space-y-2">
-                  {items.map((notif) => (
-                    <div key={notif.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col gap-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium text-gray-900">{notif.title}</div>
-                        <div className="text-xs text-gray-400">{notif.time}</div>
+                  {items.map((tx) => {
+                    const { Icon, bg, color } = getActivityIcon(tx.type, tx.direction)
+                    const amt = tx.amount > 0
+                      ? `${tx.amount.toPrecision(6).replace(/\.?0+$/, '')} ${tx.asset}`
+                      : tx.asset
+                    const peer = tx.counterparty
+                      ? `${tx.counterparty.slice(0, 8)}…${tx.counterparty.slice(-6)}`
+                      : ''
+                    const title = tx.type === 'swap'
+                      ? `Swap — ${tx.asset}`
+                      : tx.direction === 'out'
+                        ? `Sent ${tx.asset}`
+                        : `Received ${tx.asset}`
+                    const description = tx.type === 'swap'
+                      ? `${amt}${peer ? ` via ${peer}` : ''}`
+                      : tx.direction === 'out'
+                        ? `${amt}${peer ? ` → ${peer}` : ''}`
+                        : `${amt}${peer ? ` from ${peer}` : ''}`
+                    const time = tx.timestamp
+                      ? new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : ''
+                    const failed = tx.status === 'failed'
+                    return (
+                      <div key={tx.id} className={`bg-white rounded-xl shadow-sm border p-4 flex items-start gap-3 ${failed ? 'border-red-100 opacity-70' : 'border-gray-100'}`}>
+                        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${bg}`}>
+                          <Icon className={`h-5 w-5 ${color}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium text-gray-900 truncate">{title}</p>
+                            <span className="text-xs text-gray-400 shrink-0">{time}</span>
+                          </div>
+                          <p className="text-sm text-gray-500 mt-0.5 truncate">{description}</p>
+                          {failed && (
+                            <span className="inline-block mt-1 text-[11px] font-medium text-red-500 bg-red-50 px-1.5 py-0.5 rounded">Failed</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-sm text-gray-600">{notif.description}</div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )
           })}
-          {hasMore && (
+
+          {(walletActivity.length > notificationLimit || walletActivityHasMore) && (
             <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md px-6 pb-4 pt-2 bg-white border-t border-gray-100">
-              <Button className="w-full bg-[#19B17A] hover:bg-[#158f68] text-white cursor-pointer" onClick={() => setNotificationLimit((prev) => prev + 8)}>
-                Load More
+              <Button
+                className="w-full bg-[#19B17A] hover:bg-[#158f68] text-white cursor-pointer"
+                disabled={walletActivityLoadingMore}
+                onClick={() => {
+                  if (walletActivity.length > notificationLimit) {
+                    setNotificationLimit((prev) => prev + 8)
+                  } else {
+                    loadMoreWalletActivity()
+                  }
+                }}
+              >
+                {walletActivityLoadingMore ? 'Loading…' : 'Load More'}
               </Button>
             </div>
           )}
@@ -2234,11 +2335,111 @@ export function ThirdwebWalletInterface() {
         )
       })()}
 
+      {/* Terms of Service */}
+      {showTerms && (
+        <div className="px-6 py-8 pb-24">
+          <div className="flex items-center mb-6">
+            <Button variant="ghost" size="sm" className="mr-2 cursor-pointer" onClick={() => setShowTerms(false)}>
+              <ChevronLeftIcon className="h-5 w-5" />
+            </Button>
+            <h2 className="text-xl font-bold text-left flex-1">Terms of Service</h2>
+          </div>
+          <div className="space-y-6 text-sm text-gray-700 leading-relaxed">
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">1. Acceptance of Terms</h3>
+              <p>By accessing or using PeerPesa Pay, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the service.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">2. Description of Service</h3>
+              <p>PeerPesa Pay is a non-custodial blockchain-powered platform that enables cross-border money transfers directly to mobile wallets and bank accounts. We do not hold or control your funds at any time.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">3. Eligibility</h3>
+              <p>You must be at least 18 years old and legally permitted to use financial services in your jurisdiction to use PeerPesa Pay. By using the service you represent and warrant that you meet these requirements.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">4. Non-Custodial Nature</h3>
+              <p>PeerPesa Pay is a non-custodial service. You retain full control of your private keys and funds. We have no ability to recover lost keys or reverse transactions once broadcast to the blockchain.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">5. Transaction Fees</h3>
+              <p>Transactions may be subject to network gas fees, service fees, and foreign exchange spreads. All applicable fees will be disclosed before you confirm any transaction.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">6. Prohibited Uses</h3>
+              <p>You may not use PeerPesa Pay for money laundering, financing terrorism, circumventing sanctions, or any other unlawful purpose. We reserve the right to refuse service to anyone for any reason.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">7. Limitation of Liability</h3>
+              <p>To the maximum extent permitted by law, PeerPesa shall not be liable for any indirect, incidental, special, or consequential damages arising from your use of the service, including losses due to blockchain failures, exchange rate movements, or third-party service outages.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">8. Changes to Terms</h3>
+              <p>We may update these Terms of Service at any time. Continued use of the service after changes take effect constitutes your acceptance of the revised terms.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">9. Contact</h3>
+              <p>For questions about these terms, contact us at <span className="text-[#19B17A]">support@peerpesa.co</span>.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Privacy Policy */}
+      {showPrivacy && (
+        <div className="px-6 py-8 pb-24">
+          <div className="flex items-center mb-6">
+            <Button variant="ghost" size="sm" className="mr-2 cursor-pointer" onClick={() => setShowPrivacy(false)}>
+              <ChevronLeftIcon className="h-5 w-5" />
+            </Button>
+            <h2 className="text-xl font-bold text-left flex-1">Privacy Policy</h2>
+          </div>
+          <div className="space-y-6 text-sm text-gray-700 leading-relaxed">
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">1. Information We Collect</h3>
+              <p>When you use PeerPesa Pay we may collect your blockchain wallet address, transaction history on our platform, device identifiers, and usage analytics. We do not collect private keys or seed phrases.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">2. How We Use Your Information</h3>
+              <p>We use collected information to process your transactions, comply with anti-money-laundering (AML) and know-your-customer (KYC) obligations, improve the service, and communicate service updates to you.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">3. Blockchain Transparency</h3>
+              <p>Transactions submitted to a public blockchain are publicly visible. PeerPesa has no control over data recorded on-chain. Your wallet address and transaction amounts may be visible to anyone inspecting the blockchain.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">4. Data Sharing</h3>
+              <p>We do not sell your personal data. We may share data with regulated payment partners, banking institutions, and mobile money operators only as necessary to complete your transaction or meet legal requirements.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">5. Data Retention</h3>
+              <p>We retain transaction records for as long as required by applicable financial regulations, typically 5–7 years. You may request deletion of non-essential personal data by contacting us.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">6. Cookies & Analytics</h3>
+              <p>We use cookies and similar technologies to understand how you use the platform and to improve performance. You can disable cookies in your browser settings, though this may affect some functionality.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">7. Security</h3>
+              <p>We implement industry-standard security measures including encryption in transit and at rest. However, no system is completely secure. You are responsible for keeping your wallet keys safe.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">8. Your Rights</h3>
+              <p>Depending on your jurisdiction, you may have the right to access, correct, or delete personal data we hold about you. To exercise these rights, contact us at <span className="text-[#19B17A]">privacy@peerpesa.co</span>.</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">9. Updates to This Policy</h3>
+              <p>We may update this Privacy Policy periodically. We will notify you of material changes via the platform. Your continued use of PeerPesa Pay after the update constitutes acceptance.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Transaction Forms Modal */}
       {showTransactionForms && (
         <TransactionForms
           onBack={() => setShowTransactionForms(false)}
-          isWalletConnected={isConnected}
+          isWalletConnected={Boolean((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address))}
           walletType={chain ? getNetworkName(chain.chainId as number) : "Wallet"}
           transactionType={transactionType}
           assets={supportedSendTokens}
@@ -2246,7 +2447,7 @@ export function ThirdwebWalletInterface() {
           mainWalletType={walletType}
           walletNetwork={walletType === "stellar" ? "Stellar" : (chain ? getNetworkName(chain.chainId as number) : undefined)}
           exchangeRates={exchangeRates}
-          connectedWallet={address || ""}
+          connectedWallet={address || stellarAddress || ""}
           connectWalletBalance={0}
           tokenBalances={tokenBalances}
           initialSwapParams={urlSwapParams ?? undefined}
@@ -2262,8 +2463,8 @@ export function ThirdwebWalletInterface() {
         
 
             {/* Tabs */}
-       {!showTransactionForms && !showNotifications && (
-        
+       {!showTransactionForms && !showNotifications && !showTerms && !showPrivacy && (
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
           <TabsList className="grid w-full grid-cols-2 bg-gray-100">
             <TabsTrigger
@@ -2308,23 +2509,27 @@ export function ThirdwebWalletInterface() {
                       const currentEvmNetwork = chain ? getNetworkName(chain.chainId as number).toUpperCase() : ""
                       const nativeSym = chain ? getNativeSymbolForChain(chain.chainId as number) : undefined
 
-                      const walletMatchedAssets = compareNativeCurrenciesWithWallet(
+                      const networkInfo = {
+                        walletType,
+                        chainId: chain?.chainId as number | undefined,
+                        networkName: currentEvmNetwork || undefined,
+                        nativeSymbol: nativeSym || undefined,
+                      }
+                      const balanceData = {
+                        tokenBalances,
+                        nativeBalance: nativeBalance ?? undefined,
+                        stellarBalance,
+                        usdcStellarBalance,
+                      }
+
+                      // All system-supported currencies for this network (balance may be 0)
+                      const allNetworkAssets = getAllSupportedCurrenciesForNetwork(
                         currencies || [],
-                        {
-                          tokenBalances,
-                          nativeBalance: nativeBalance ?? undefined,
-                          stellarBalance,
-                          usdcStellarBalance,
-                        },
-                        {
-                          walletType,
-                          chainId: chain?.chainId as number | undefined,
-                          networkName: currentEvmNetwork || undefined,
-                          nativeSymbol: nativeSym || undefined,
-                        },
+                        balanceData,
+                        networkInfo,
                       )
 
-                      if (walletMatchedAssets.length === 0) {
+                      if (allNetworkAssets.length === 0) {
                         return (
                           <div className="p-8 text-center bg-gray-50">
                             <div className="flex flex-col items-center gap-3">
@@ -2332,13 +2537,13 @@ export function ThirdwebWalletInterface() {
                                 <WalletIcon className="h-6 w-6 text-gray-400" />
                               </div>
                               <div>
-                                <p className="font-medium text-gray-900">No coins found on wallet {JSON.stringify(compareNativeCurrenciesWithWallet)}</p>
+                                <p className="font-medium text-gray-900">No supported currencies found</p>
                                 <p className="text-sm text-gray-600">
                                   {walletType === 'stellar'
-                                    ? 'No native currencies with balance found on your Stellar wallet'
+                                    ? 'No supported currencies found for your Stellar wallet'
                                     : currentEvmNetwork
-                                    ? `No native currencies with balance found for ${currentEvmNetwork} network`
-                                    : 'No native currencies with balance found'}
+                                    ? `No supported currencies found for ${currentEvmNetwork} network`
+                                    : 'Connect a wallet to see supported currencies'}
                                 </p>
                               </div>
                             </div>
@@ -2346,28 +2551,39 @@ export function ThirdwebWalletInterface() {
                         )
                       }
 
-                      return walletMatchedAssets.map((matched, index) => {
+                      return allNetworkAssets.map((matched, index) => {
                         const asset = matched.currency
-                        const balance = matched.balanceFormatted
                         const localFlagIcon = getCurrencyFlagIcon(matched.symbol)
                         const fallbackIcon = getAssetIconFallback(asset)
+                        const hasBalance = matched.hasBalance
+                        const fiatValue = hasBalance
+                          ? (exchangeAmount(matched.balanceFormatted, matched.symbol, selectedCurrency) || null)
+                          : null
+
+                        // Exchange rate (1 unit price) — prefer sale_rate on the currency object itself
+                        const unitPrice: number | null =
+                          matched.currency?.price?.rate?.sale_rate ??
+                          getCurrencyRate(currencies || [], matched.symbol) ??
+                          null
 
                         return (
                           <div
                             key={`${matched.symbol}-${index}`}
-                            className={`p-4 flex items-center justify-between bg-gray-50 ${
-                              index !== walletMatchedAssets.length - 1 ? "border-b border-gray-100" : ""
-                            }`}
+                            className={`flex items-center justify-between px-4 py-3 ${
+                              index !== allNetworkAssets.length - 1 ? "border-b border-gray-100" : ""
+                            } ${hasBalance ? "bg-white" : "bg-gray-50/60"}`}
                           >
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                              asset.type === 'native' ? 'bg-blue-100' : 'bg-green-100'
-                            }`}>
+                            {/* Left: icon + name */}
+                            <div className="flex items-center gap-3">
+                              <div className="relative h-10 w-10 shrink-0">
+                                <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                                  hasBalance ? 'bg-blue-100' : 'bg-gray-100'
+                                }`}>
                                   {localFlagIcon || fallbackIcon ? (
                                     <img
                                       src={localFlagIcon || fallbackIcon || ""}
                                       alt={matched.name}
-                                      className="w-6 h-6 rounded-full"
+                                      className="w-6 h-6 rounded-full object-cover"
                                       onError={(e) => {
                                         if (fallbackIcon && e.currentTarget.src !== fallbackIcon) {
                                           e.currentTarget.src = fallbackIcon
@@ -2376,37 +2592,41 @@ export function ThirdwebWalletInterface() {
                                         e.currentTarget.style.display = "none"
                                       }}
                                     />
-                              ) : (
-                                <span className={`text-xs font-bold ${
-                                  (asset.token_type === 'Native' || asset.type === 'native') ? 'text-blue-600' : 'text-green-600'
-                                }`}>
-                                  {matched.symbol?.slice(0, 2).toUpperCase() || '--'}
-                                </span>
-                              )}
+                                  ) : (
+                                    <span className={`text-xs font-bold ${hasBalance ? 'text-blue-600' : 'text-gray-400'}`}>
+                                      {matched.symbol?.slice(0, 2).toUpperCase() || '--'}
+                                    </span>
+                                  )}
+                                </div>
+                                {hasBalance && (
+                                  <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-green-500" />
+                                )}
+                              </div>
+                              <div>
+                                <p className={`text-sm font-semibold ${hasBalance ? 'text-gray-900' : 'text-gray-500'}`}>
+                                  {matched.name}
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                  {matched.symbol}
+                                  {unitPrice != null && (
+                                    <span className="ml-1">· {formatFiatExchangeRate(unitPrice)} {selectedCurrency}</span>
+                                  )}
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium text-gray-900">{balance} {matched.name}</p>
-                              {generalExchangeRates.length > 0 && (() => {
-                                const rate = generalExchangeRates.find((r: any) => r.price?.base_coin === matched.symbol && r.price?.quote_coin === selectedCurrency)
-                                const price = rate ? Number(rate.price?.marketcap_amount) : null
-                                return price != null ? (
-                                  <p className="text-xs text-gray-500 mt-0.5">
-                                    1 {matched.symbol} = {formatFiatExchangeRate(price)} {selectedCurrency}
-                                  </p>
-                                ) : null
-                              })()}
+
+                            {/* Right: balance + fiat value */}
+                            <div className="text-right">
+                              <p className={`text-sm font-semibold ${hasBalance ? 'text-gray-900' : 'text-gray-400'}`}>
+                                {hasBalance
+                                  ? `${matched.balanceFormatted} ${matched.symbol}`
+                                  : <span className="text-gray-300">—</span>}
+                              </p>
+                              <p className="text-xs text-gray-400">
+                                {fiatValue ? `${fiatValue} ${selectedCurrency}` : ''}
+                              </p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="font-medium text-gray-900">
-                              {exchangeAmount(
-                                balance,
-                                matched.symbol,
-                                selectedCurrency
-                              ) || '0.00'} {selectedCurrency}
-                            </p>
-                          </div>
-                        </div>
                         )
                       })
                     })()
@@ -2447,28 +2667,28 @@ export function ThirdwebWalletInterface() {
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        {item.type === "send" ? (
-                          <ArrowUpIcon className="h-4 w-4 text-red-500" />
-                        ) : (
-                          <ArrowDownIcon className="h-4 w-4 text-green-500" />
-                        )}
+                        {item.type === "swap"
+                          ? <RefreshCwIcon className="h-4 w-4 text-blue-500" />
+                          : item.direction === "out"
+                            ? <ArrowUpIcon className="h-4 w-4 text-red-500" />
+                            : <ArrowDownIcon className="h-4 w-4 text-green-500" />
+                        }
                         <div>
                           <p className="font-medium text-gray-900 capitalize">
-                            {item.type} {item.asset}
+                            {item.type === "swap" ? `Swap ${item.asset}` : item.direction === "out" ? `Sent ${item.asset}` : `Received ${item.asset}`}
                           </p>
                           <p className="text-sm text-gray-600">{formatDate(item.timestamp)}</p>
                         </div>
                       </div>
                       <div className="text-right flex flex-col items-end">
                         <p className="font-medium text-gray-900">
-                              {item.type === "receive" ? "+" : "-"}
-                              {item.amount.toFixed(6)} {item.asset}
+                          {item.direction === "in" ? "+" : "-"}{item.amount.toFixed(6)} {item.asset}
                         </p>
                         <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
-                            </div>
-                            </div>
-                          </div>
+                        </div>
+                      </div>
+                    </div>
                   ))}
                   {walletActivity.length > overviewTxVisible && (
                     <div ref={overviewTxLoadMoreRef} className="p-3 bg-gray-50 border-t border-gray-100 text-center text-sm text-gray-500">
@@ -2538,29 +2758,29 @@ export function ThirdwebWalletInterface() {
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        {item.type === "send" ? (
-                          <ArrowUpIcon className="h-4 w-4 text-red-500" />
-                        ) : (
-                          <ArrowDownIcon className="h-4 w-4 text-green-500" />
-                        )}
+                        {item.type === "swap"
+                          ? <RefreshCwIcon className="h-4 w-4 text-blue-500" />
+                          : item.direction === "out"
+                            ? <ArrowUpIcon className="h-4 w-4 text-red-500" />
+                            : <ArrowDownIcon className="h-4 w-4 text-green-500" />
+                        }
                         <div>
                           <p className="font-medium text-gray-900 capitalize">
-                            {item.type} {item.asset}
+                            {item.type === "swap" ? `Swap ${item.asset}` : item.direction === "out" ? `Sent ${item.asset}` : `Received ${item.asset}`}
                           </p>
                           <p className="text-sm text-gray-600">{formatDate(item.timestamp)}</p>
-                            </div>
-                          </div>
-                          <div className="text-right flex flex-col items-end">
+                        </div>
+                      </div>
+                      <div className="text-right flex flex-col items-end">
                         <p className="font-medium text-gray-900">
-                              {item.type === "receive" ? "+" : "-"}
-                              {item.amount.toFixed(6)} {item.asset}
+                          {item.direction === "in" ? "+" : "-"}{item.amount.toFixed(6)} {item.asset}
                         </p>
                         <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
-                            </div>
-                            </div>
-                          </div>
-                        ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                         {(walletActivity.length > txTabVisible || walletActivityHasMore) && (
                           <div className="p-4 bg-gray-50 border-t border-gray-100" ref={transactionsLoadMoreRef}>
                             <div className="text-center text-sm text-gray-600">
@@ -2593,145 +2813,149 @@ export function ThirdwebWalletInterface() {
 
         {/* Wallet Connection Modal */}
         {showWalletModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl">
-              <div className="flex items-center justify-between p-6 border-b border-gray-100">
-                <h2 className="text-xl font-bold text-gray-900">Connect Wallet</h2>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 p-0 rounded-full bg-red-100 hover:bg-red-200 text-red-700 flex items-center justify-center"
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowWalletModal(false) }}
+          >
+            <div className="w-full overflow-hidden bg-white shadow-2xl rounded-t-3xl sm:max-w-sm sm:rounded-3xl animate-in slide-in-from-bottom-6 duration-300">
+
+              {/* Drag handle (mobile only) */}
+              <div className="flex justify-center pt-3 pb-1 sm:hidden">
+                <div className="h-1 w-10 rounded-full bg-gray-200" />
+              </div>
+
+              {/* Header */}
+              <div className="relative flex items-center gap-3 border-b border-gray-100 bg-gradient-to-br from-[#f0fdf9] to-white px-5 py-4">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#19B17A]/10">
+                  <ShieldCheckIcon className="h-5 w-5 text-[#19B17A]" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold leading-none text-gray-900">Connect Wallet</h2>
+                  <p className="mt-0.5 text-xs text-gray-500">Choose your preferred wallet to connect</p>
+                </div>
+                <button
+                  className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
                   onClick={() => setShowWalletModal(false)}
                 >
                   <XIcon className="h-4 w-4" />
-                </Button>
+                </button>
               </div>
 
-              <div className="p-6 space-y-4">
-                <p className="text-sm text-gray-600 mb-6">Choose your preferred wallet to connect 33</p>
-                
-                {/* Thirdweb Button */}
-                <div className="space-y-3">
-                  <div className="text-sm font-medium text-gray-700 mb-2">EVM Wallets</div>
-                  <Button
-                    variant="outline"
-                    className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 transition-all duration-200 bg-transparent"
+              {/* Wallet options */}
+              <div className="px-4 py-4 space-y-1">
+
+                {/* EVM section */}
+                <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">EVM Networks</p>
+
+                <button
+                  className="group flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 transition-all duration-150 hover:border-[#19B17A]/40 hover:bg-green-50"
+                  onClick={async () => {
+                    setShowWalletModal(false)
+                    setTimeout(async () => { await openConnectWallet() }, 100)
+                  }}
+                >
+                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-400 to-indigo-600 shadow-sm overflow-hidden">
+                    <img src="/extra/evm.svg" alt="EVM" className="h-6 w-6" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-semibold text-gray-900">Connect EVM Wallet</p>
+                    <p className="text-xs text-gray-500">MetaMask, WalletConnect, Coinbase &amp; more</p>
+                  </div>
+                  <ChevronRightIcon className="h-4 w-4 text-gray-300 transition-colors group-hover:text-[#19B17A]" />
+                </button>
+
+                {/* Stellar section */}
+                <p className="px-1 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Stellar Network</p>
+
+                <div ref={stellarKitRef} className="hidden" />
+                {stellarKit ? (
+                  <button
+                    className="group flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 transition-all duration-150 hover:border-[#19B17A]/40 hover:bg-green-50"
                     onClick={async () => {
-                      // Close modal and trigger ConnectWallet modal
-                      setShowWalletModal(false)
-                      // Small delay to ensure modal is closed, then open ConnectWallet
-                      setTimeout(async () => {
-                        await openConnectWallet()
-                      }, 100)
-                    }}
-                  >
-                    <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                      <img src="/extra/evm.svg" alt="Evm" className="h-5 w-5" />
-                    </div>
-                    <div className="text-left">
-                      <p className="font-semibold text-gray-900">Connect EVM Wallet</p>
-                      <p className="text-sm text-gray-600">Connect via thirdweb</p>
-                    </div>
-                  </Button>
-                </div>
-
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200" />
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-white text-gray-500">Or</span>
-                  </div>
-                </div>
-
-
-
-
-
-                {/* Stellar Wallets Kit */}
-                <div className="space-y-3">
-                  <div className="text-sm font-medium text-gray-700 mb-2">Stellar Wallets</div>
-                  <div ref={stellarKitRef}></div>
-                  {stellarKit && (  // request to connect stellar wallet
-                    <Button
-                      variant="outline"
-                      className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#6EBE44] hover:bg-green-50 transition-all duration-200 bg-transparent"
-                      onClick={async () => {
-                        try {
-                          // Show initial loading state
-                          toast({
-                            title: "Opening Wallet Selection",
-                            description: "Please choose your preferred Stellar wallet",
-                            variant: "default",
-                          })
-                          
-                          await stellarKit.openModal({
-                            onWalletSelected: async (wallet) => {
-                              try {
+                      try {
+                        toast({
+                          title: "Opening Wallet Selection",
+                          description: "Please choose your preferred Stellar wallet",
+                          variant: "default",
+                        })
+                        await stellarKit.openModal({
+                          onWalletSelected: async (wallet) => {
+                            try {
+                              toast({
+                                title: "Wallet Selected",
+                                description: `Selected ${wallet.name}. Please authorize the connection in your wallet.`,
+                                variant: "default",
+                              })
+                              stellarKit.setWallet(wallet.id)
+                              const addressResponse = await stellarKit.getAddress({ skipRequestAccess: false })
+                              if (addressResponse.address) {
+                                setStellarAddress(addressResponse.address)
+                                setWalletType('stellar')
+                                fetchStellarBalance(addressResponse.address)
+                                localStorage.setItem('peerpesa_wallet_type', 'stellar')
+                                localStorage.setItem('peerpesa_stellar_address', addressResponse.address)
                                 toast({
-                                  title: "Wallet Selected",
-                                  description: `Selected ${wallet.name}. Please authorize the connection in your wallet.`,
+                                  title: "\u2705 Connected to Stellar Wallet",
+                                  description: `Wallet: ${wallet.name} - Address: ${addressResponse.address.slice(0, 8)}...${addressResponse.address.slice(-8)}`,
                                   variant: "default",
                                 })
-                                
-                                stellarKit.setWallet(wallet.id)
-                                const addressResponse = await stellarKit.getAddress({
-                                  skipRequestAccess: false  // Force explicit user approval
-                                })
-                                
-                                if (addressResponse.address) {
-                                  setStellarAddress(addressResponse.address)
-                                  setWalletType('stellar')
-                                  fetchStellarBalance(addressResponse.address)
-                                  
-                                  // Store in localStorage for persistence
-                                  localStorage.setItem('peerpesa_wallet_type', 'stellar')
-                                  localStorage.setItem('peerpesa_stellar_address', addressResponse.address)
-                                  
-                                  toast({
-                                    title: "✅ Connected to Stellar Wallet",
-                                    description: `Wallet: ${wallet.name} - Address: ${addressResponse.address.slice(0, 8)}...${addressResponse.address.slice(-8)}`,
-                                    variant: "default",
-                                  })
-                                  setShowWalletModal(false)
-                                }
-                                } catch (error) {
-                                  console.error('Wallet connection error:', error)
-                                  toast({
-                                    title: "Connection Failed",
-                                    description: `${wallet.name} connection was declined or failed`,
-                                    variant: "destructive",
-                                  })
-                                }
-                            },
-                            modalTitle: 'Connect Stellar Wallet (Mainnet)',
-                            notAvailableText: 'Wallet not available - please install the extension or app',
-                          })
-                        } catch (error) {
-                          console.error('Modal open error:', error)
-                          toast({
-                            title: "Error",
-                            description: "Failed to open wallet selection modal",
-                            variant: "destructive",
-                          })
-                        }
-                      }}
-                    >
-                      <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <img src="/extra/stellar.svg" alt="Stellar" className="h-5 w-5" />
-                      </div>
-                      <div className="text-left">
-                        <p className="font-semibold text-gray-900">Connect Stellar Wallet</p>
-                        <p className="text-sm text-gray-600">Freighter, Albedo, XBull & More</p>
-                      </div>
-                    </Button>
-                  )}
-                </div>
+                                setShowWalletModal(false)
+                              }
+                            } catch (error) {
+                              console.error('Wallet connection error:', error)
+                              toast({
+                                title: "Connection Failed",
+                                description: `${(error as any)?.message || 'Connection was declined or failed'}`,
+                                variant: "destructive",
+                              })
+                            }
+                          },
+                          modalTitle: 'Connect Stellar Wallet (Mainnet)',
+                          notAvailableText: 'Wallet not available - please install the extension or app',
+                        })
+                      } catch (error) {
+                        console.error('Modal open error:', error)
+                        toast({
+                          title: "Error",
+                          description: "Failed to open wallet selection modal",
+                          variant: "destructive",
+                        })
+                      }
+                    }}
+                  >
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-sm overflow-hidden">
+                      <img src="/extra/stellar.svg" alt="Stellar" className="h-6 w-6" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-semibold text-gray-900">Connect Stellar Wallet</p>
+                      <p className="text-xs text-gray-500">Freighter, Albedo, XBull &amp; more</p>
+                    </div>
+                    <ChevronRightIcon className="h-4 w-4 text-gray-300 transition-colors group-hover:text-[#19B17A]" />
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 opacity-50 cursor-not-allowed">
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-sm overflow-hidden">
+                      <img src="/extra/stellar.svg" alt="Stellar" className="h-6 w-6" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-semibold text-gray-900">Connect Stellar Wallet</p>
+                      <p className="text-xs text-gray-500">Initializing…</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="p-6 pt-0">
-                <p className="text-xs text-gray-500 text-center">
-                  By connecting a wallet, you agree to our Terms of Service and Privacy Policy
+              {/* Footer */}
+              <div className="px-5 pb-6 pt-1 text-center">
+                <div className="mb-1.5 flex items-center justify-center gap-1.5">
+                  <ShieldCheckIcon className="h-3.5 w-3.5 text-[#19B17A]" />
+                  <span className="text-xs text-gray-400">Your keys, your crypto · Non-custodial</span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  By connecting you agree to our{" "}
+                  <span className="cursor-pointer text-[#19B17A] hover:underline" onClick={() => setShowTerms(true)}>Terms</span>
+                  {" "}and{" "}
+                  <span className="cursor-pointer text-[#19B17A] hover:underline" onClick={() => setShowPrivacy(true)}>Privacy Policy</span>
                 </p>
               </div>
             </div>
@@ -2743,11 +2967,11 @@ export function ThirdwebWalletInterface() {
           <div className="flex items-end justify-around px-6 pt-2 pb-[env(safe-area-inset-bottom,8px)]">
             {/* Home */}
             <button
-              onClick={() => { setActiveTab("overview"); setShowTransactionForms(false) }}
+              onClick={() => { setActiveTab("overview"); setShowTransactionForms(false); setShowTerms(false); setShowPrivacy(false) }}
               className="flex flex-col items-center gap-0.5 py-1 min-w-[64px] cursor-pointer"
             >
-              <HomeIcon className={`h-5 w-5 ${activeTab === "overview" && !showTransactionForms ? "text-[#5ea838]" : "text-gray-400"}`} />
-              <span className={`text-[11px] ${activeTab === "overview" && !showTransactionForms ? "text-[#5ea838] font-semibold" : "text-gray-500"}`}>Home</span>
+              <HomeIcon className={`h-5 w-5 ${activeTab === "overview" && !showTransactionForms && !showTerms && !showPrivacy ? "text-[#5ea838]" : "text-gray-400"}`} />
+              <span className={`text-[11px] ${activeTab === "overview" && !showTransactionForms && !showTerms && !showPrivacy ? "text-[#5ea838] font-semibold" : "text-gray-500"}`}>Home</span>
             </button>
 
             {/* Send - raised green circle */}
@@ -2763,16 +2987,16 @@ export function ThirdwebWalletInterface() {
 
             {/* Notifications */}
             <button
-              onClick={() => { setActiveTab("notifications"); setShowTransactionForms(false) }}
+              onClick={() => { setShowNotifications(true); setShowTransactionForms(false) }}
               className="flex flex-col items-center gap-0.5 py-1 min-w-[64px] cursor-pointer relative"
             >
-              <BellIcon className={`h-5 w-5 ${activeTab === "notifications" && !showTransactionForms ? "text-[#5ea838]" : "text-gray-400"}`} />
-              {notificationCount > 0 && (
+              <BellIcon className={`h-5 w-5 ${showNotifications ? "text-[#5ea838]" : "text-gray-400"}`} />
+              {mounted && walletActivity.length > 0 && (
                 <span className="absolute -top-0.5 right-2 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
-                  {notificationCount > 99 ? "99+" : notificationCount}
+                  {walletActivity.length > 99 ? "99+" : walletActivity.length}
                 </span>
               )}
-              <span className={`text-[11px] ${activeTab === "notifications" && !showTransactionForms ? "text-[#5ea838] font-semibold" : "text-gray-500"}`}>Notifications</span>
+              <span className={`text-[11px] ${showNotifications ? "text-[#5ea838] font-semibold" : "text-gray-500"}`}>Activities</span>
             </button>
           </div>
         </div>
