@@ -1183,12 +1183,17 @@ export function WalletInterface() {
       </div>
 
       {/* Balance Card */}
-      <div className="px-6 pt-4">
-        <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-gray-600 mb-1">Your Balance</p>
+      <div className="px-6 pt-2">
+        <Card className="mb-3 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
+          <CardContent className="p-2 text-center">
+            <p className="text-sm text-gray-600 mb-0.5">Your Balance</p>
             <p className="text-2xl font-bold text-gray-900">
-              {nativeBalance ? `${parseFloat(nativeBalance.formatted).toFixed(4)} ${nativeBalance.symbol}` : `${celoBalance.toFixed(4)} CELO`}
+              {(() => {
+                const b = nativeBalance ? parseFloat(nativeBalance.formatted) : celoBalance
+                const sym = nativeBalance ? nativeBalance.symbol : "CELO"
+                const d = b >= 1 ? 2 : 4
+                return `${b.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })} ${sym}`
+              })()}
             </p>
             <div className="flex items-center justify-center gap-2">
               <p className="text-sm text-gray-600">
@@ -1228,7 +1233,7 @@ export function WalletInterface() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-3 gap-3 mb-3">
           <Button
             variant="outline"
             className="h-12 flex flex-col items-center justify-center gap-1 bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black cursor-pointer"
@@ -1338,7 +1343,9 @@ export function WalletInterface() {
                       </div>
                       <div className="text-right">
                         <p className="font-medium text-gray-900">
-                          {hasBalance ? balance.toFixed(6) : (tokenBalancesLoading ? "..." : "—")} {sym}
+                          {hasBalance
+                            ? (() => { const d = balance >= 1 ? 2 : 4; return balance.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) })()
+                            : (tokenBalancesLoading ? "..." : "—")} {sym}
                         </p>
                         <p className="text-xs text-gray-500">
                           {rate > 0 && hasBalance
@@ -1406,42 +1413,6 @@ export function WalletInterface() {
             </div>
           )}
 
-          {/* Recent Transactions section */}
-          <div>
-            <div className="px-6 py-2">
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Recent Transactions</h3>
-            </div>
-            <div className="space-y-0">
-              {mockTransactions.map((transaction, index) => (
-                <div
-                  key={transaction.id}
-                  className={`p-4 flex items-center justify-between bg-gray-50 ${
-                    index !== mockTransactions.length - 1 ? "border-b border-gray-100" : ""
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    {getTransactionIcon(transaction.type)}
-                    <div>
-                      <p className="font-medium text-gray-900 capitalize">
-                        {transaction.type} {transaction.currency}
-                      </p>
-                      <p className="text-sm text-gray-600">{formatDate(transaction.date)}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium text-gray-900">
-                      {transaction.type === "buy" || transaction.type === "receive" ? "+" : "-"}
-                      {transaction.amount} {transaction.currency}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-gray-600">${transaction.fiatAmount.toFixed(2)}</p>
-                      {getStatusBadge(transaction.status)}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </TabsContent>
 
         <TabsContent value="transactions" className="mt-6">

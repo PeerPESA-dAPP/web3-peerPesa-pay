@@ -2639,7 +2639,7 @@ export function ThirdwebWalletInterface() {
             <WalletNotifications />
 
             {/* Recent Transactions section - hidden when notifications are active */}
-            {!hasActiveNotifications && (
+            {!hasActiveNotifications && '1' === '0' && (
             <div>
               <div className="px-0 py-2">
                 <h3 className="text-md font-bold text-gray-500 mb-1">Recent Transactions</h3>

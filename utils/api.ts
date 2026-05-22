@@ -71,10 +71,11 @@ export async function fetchWithdrawChannels({
  * API utility functions for PeerPesa
  * Centralized API calls with base URL configuration
  */
+import { encryptPayLoad } from "@/services/encryption"
 
 // Base URL for PeerPesa API
-export const API_BASE_URL = 'https://api.peerpesa.co'
-// export const API_BASE_URL = "http://localhost:3111"
+// export const API_BASE_URL = 'https://api.peerpesa.co'
+export const API_BASE_URL = "http://localhost:3111"
 
 // API endpoints
 export const API_ENDPOINTS = {
@@ -236,9 +237,14 @@ export async function apiPost<T = any>(
   endpoint: string,
   data?: any
 ): Promise<T> {
+  let body: string | undefined
+  if (data) {
+    const encrypted = await encryptPayLoad(data)
+    body = JSON.stringify(encrypted)
+  }
   return apiRequest<T>(endpoint, {
     method: 'POST',
-    body: data ? JSON.stringify(data) : undefined,
+    body,
   })
 }
 
@@ -252,9 +258,14 @@ export async function apiPut<T = any>(
   endpoint: string,
   data?: any
 ): Promise<T> {
+  let body: string | undefined
+  if (data) {
+    const encrypted = await encryptPayLoad(data)
+    body = JSON.stringify(encrypted)
+  }
   return apiRequest<T>(endpoint, {
     method: 'PUT',
-    body: data ? JSON.stringify(data) : undefined,
+    body,
   })
 }
 
@@ -552,11 +563,16 @@ export interface Network {
   id?: string
   name: string
   code?: string
-  type: string // 'bank' | 'mobile' | 'crypto'
+  type?: string
+  channelType?: string
+  channelIds?: string[]
+  status?: string
+  country?: string
   isActive?: boolean
   currency?: string
   fees?: number
   processingTime?: string
+  [key: string]: any
 }
 
 export interface NetworksResponse {
@@ -658,15 +674,16 @@ export async function fetchWithdrawNetworks(
   sort: string = ''
 ): Promise<Network[]> {
   try {
+    const channelType = filter === 'mobile' ? 'momo' : 'bank'
     const params: Record<string, string> = {
-      filter,
+      channelType,
       currency,
     }
-    
+
     if (sort) {
       params.sort = sort
     }
-    
+
     const response = await apiGet<NetworksResponse>(API_ENDPOINTS.WITHDRAW_NETWORKS, params)
     
     // Handle different possible response formats
