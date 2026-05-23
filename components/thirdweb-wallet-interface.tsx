@@ -2682,7 +2682,7 @@ export function ThirdwebWalletInterface() {
                       </div>
                       <div className="text-right flex flex-col items-end">
                         <p className="font-medium text-gray-900">
-                          {item.direction === "in" ? "+" : "-"}{item.amount.toFixed(6)} {item.asset}
+                          {item.direction === "in" ? "+" : "-"}{(() => { const d = item.amount >= 1 ? 2 : 4; return item.amount.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) })()} {item.asset}
                         </p>
                         <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
@@ -2773,7 +2773,7 @@ export function ThirdwebWalletInterface() {
                       </div>
                       <div className="text-right flex flex-col items-end">
                         <p className="font-medium text-gray-900">
-                          {item.direction === "in" ? "+" : "-"}{item.amount.toFixed(6)} {item.asset}
+                          {item.direction === "in" ? "+" : "-"}{(() => { const d = item.amount >= 1 ? 2 : 4; return item.amount.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) })()} {item.asset}
                         </p>
                         <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}

@@ -283,8 +283,14 @@ export const getNetworkAssetStatus = (walletAssets: WalletAsset[], networks: str
  * @returns Formatted balance string
  */
 export const formatAssetBalance = (balance: number, decimals: number, symbol: string): string => {
-  const formattedBalance = (balance / Math.pow(10, decimals)).toFixed(decimals > 6 ? 6 : decimals)
-  return `${formattedBalance} ${symbol}`
+  const actual = balance / Math.pow(10, decimals)
+  const d = actual >= 1 ? 2 : 4
+  return `${actual.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })} ${symbol}`
+}
+
+const fmtBal = (b: number): string => {
+  const d = b >= 1 ? 2 : 4
+  return b.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })
 }
 
 /**
@@ -482,7 +488,7 @@ export const compareNativeCurrenciesWithWallet = (
     matched.push({
       currency: coin,
       balance,
-      balanceFormatted: String(balance),
+      balanceFormatted: fmtBal(balance),
       symbol: coin.symbol || '',
       name: coin.token_name || coin.name || coin.symbol || '',
       hasBalance: true,
@@ -550,7 +556,7 @@ export const getAllSupportedCurrenciesForNetwork = (
     result.push({
       currency: coin,
       balance,
-      balanceFormatted: balance > 0 ? String(balance) : '0',
+      balanceFormatted: balance > 0 ? fmtBal(balance) : '0',
       symbol: coin.symbol || '',
       name: coin.token_name || coin.name || coin.symbol || '',
       hasBalance: balance > 0,
