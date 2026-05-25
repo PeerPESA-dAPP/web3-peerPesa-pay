@@ -30,10 +30,14 @@ import {
   SendIcon,
   RefreshCwIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   HomeIcon,
   ActivityIcon,
   XIcon,
   GlobeIcon,
+  ShieldCheckIcon,
+  SmartphoneIcon,
+  ZapIcon,
 } from "lucide-react"
 
 interface Transaction {
@@ -1155,12 +1159,11 @@ export function WalletInterface() {
 
 
         <Button
-          variant={isWalletConnected ? "outline" : "default"}
           size="sm"
-          className={`flex items-center gap-2 cursor-pointer ${
+          className={`flex items-center gap-2 rounded-full px-5 py-3 shadow-lg transition-all duration-200 ${
             isWalletConnected
-              ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-              : "bg-[#19B17A] hover:bg-[#158f68] text-white"
+              ? "bg-green-50 text-green-800 border border-green-200 hover:bg-green-100"
+              : "bg-gradient-to-r from-[#19B17A] to-[#12a06d] text-white hover:from-[#17a16d] hover:to-[#10855c]"
           }`}
           onClick={() => {
             console.log("Connect wallet clicked, isWalletConnected:", isWalletConnected)
@@ -1173,17 +1176,24 @@ export function WalletInterface() {
           }}
         >
           <WalletIcon className="h-4 w-4" />
-          {isWalletConnected ? `${walletType}` : "Connect Wallet"}
+          <span className="font-semibold text-sm">
+            {isWalletConnected ? `${walletType}` : "Connect Wallet"}
+          </span>
         </Button>
       </div>
 
       {/* Balance Card */}
-      <div className="px-6 pt-4">
-        <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-gray-600 mb-1">Your Balance</p>
+      <div className="px-6 pt-2">
+        <Card className="mb-3 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
+          <CardContent className="p-2 text-center">
+            <p className="text-sm text-gray-600 mb-0.5">Your Balance</p>
             <p className="text-2xl font-bold text-gray-900">
-              {nativeBalance ? `${parseFloat(nativeBalance.formatted).toFixed(4)} ${nativeBalance.symbol}` : `${celoBalance.toFixed(4)} CELO`}
+              {(() => {
+                const b = nativeBalance ? parseFloat(nativeBalance.formatted) : celoBalance
+                const sym = nativeBalance ? nativeBalance.symbol : "CELO"
+                const d = b >= 1 ? 2 : 4
+                return `${b.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })} ${sym}`
+              })()}
             </p>
             <div className="flex items-center justify-center gap-2">
               <p className="text-sm text-gray-600">
@@ -1223,7 +1233,7 @@ export function WalletInterface() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-3 gap-3 mb-3">
           <Button
             variant="outline"
             className="h-12 flex flex-col items-center justify-center gap-1 bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black cursor-pointer"
@@ -1333,7 +1343,9 @@ export function WalletInterface() {
                       </div>
                       <div className="text-right">
                         <p className="font-medium text-gray-900">
-                          {hasBalance ? balance.toFixed(6) : (tokenBalancesLoading ? "..." : "—")} {sym}
+                          {hasBalance
+                            ? (() => { const d = balance >= 1 ? 2 : 4; return balance.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) })()
+                            : (tokenBalancesLoading ? "..." : "—")} {sym}
                         </p>
                         <p className="text-xs text-gray-500">
                           {rate > 0 && hasBalance
@@ -1401,42 +1413,6 @@ export function WalletInterface() {
             </div>
           )}
 
-          {/* Recent Transactions section */}
-          <div>
-            <div className="px-6 py-2">
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Recent Transactions</h3>
-            </div>
-            <div className="space-y-0">
-              {mockTransactions.map((transaction, index) => (
-                <div
-                  key={transaction.id}
-                  className={`p-4 flex items-center justify-between bg-gray-50 ${
-                    index !== mockTransactions.length - 1 ? "border-b border-gray-100" : ""
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    {getTransactionIcon(transaction.type)}
-                    <div>
-                      <p className="font-medium text-gray-900 capitalize">
-                        {transaction.type} {transaction.currency}
-                      </p>
-                      <p className="text-sm text-gray-600">{formatDate(transaction.date)}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium text-gray-900">
-                      {transaction.type === "buy" || transaction.type === "receive" ? "+" : "-"}
-                      {transaction.amount} {transaction.currency}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-gray-600">${transaction.fiatAmount.toFixed(2)}</p>
-                      {getStatusBadge(transaction.status)}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </TabsContent>
 
         <TabsContent value="transactions" className="mt-6">
@@ -1699,100 +1675,122 @@ export function WalletInterface() {
 
       {/* Wallet Connect Modal */}
       {showWalletModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm mx-auto shadow-2xl">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100">
-              <h2 className="text-xl font-bold text-gray-900">Connect Wallet</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 hover:bg-gray-100 cursor-pointer"
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowWalletModal(false) }}
+        >
+          <div className="w-full overflow-hidden bg-white shadow-2xl rounded-t-3xl sm:max-w-sm sm:rounded-3xl animate-in slide-in-from-bottom-6 duration-300">
+
+            {/* Drag handle (mobile only) */}
+            <div className="flex justify-center pt-3 pb-1 sm:hidden">
+              <div className="h-1 w-10 rounded-full bg-gray-200" />
+            </div>
+
+            {/* Header */}
+            <div className="relative flex items-center gap-3 border-b border-gray-100 bg-gradient-to-br from-[#f0fdf9] to-white px-5 py-4">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#19B17A]/10">
+                <ShieldCheckIcon className="h-5 w-5 text-[#19B17A]" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold leading-none text-gray-900">Connect Wallet</h2>
+                <p className="mt-0.5 text-xs text-gray-500">Non-custodial · End-to-end secure</p>
+              </div>
+              <button
+                className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
                 onClick={() => setShowWalletModal(false)}
               >
                 <XIcon className="h-4 w-4" />
-              </Button>
+              </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-gray-600 mb-6">Choose your preferred wallet to connect</p>
-              
-              {/* MiniPay specific button */}
-              <Button
-                variant="outline"
-                className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
+            {/* Wallet list */}
+            <div className="px-4 py-4 space-y-1">
+
+              {/* EVM section */}
+              <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">EVM Wallets</p>
+
+              {/* MiniPay */}
+              <button
+                className="group flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 transition-all duration-150 hover:border-[#19B17A]/40 hover:bg-green-50 disabled:opacity-50"
                 onClick={connectMiniPay}
                 disabled={isConnecting}
               >
-                <div className="h-10 w-10 rounded-full flex items-center justify-center bg-green-100">
-                  <WalletIcon className="h-5 w-5 text-green-600" />
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-green-600 shadow-sm">
+                  <SmartphoneIcon className="h-5 w-5 text-white" />
                 </div>
-                <div className="text-left">
-                  <p className="font-semibold text-gray-900">
-                    {isConnecting ? "Connecting..." : "MiniPay"}
-                  </p>
-                  <p className="text-sm text-gray-600">Celo mobile wallet</p>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-semibold text-gray-900">{isConnecting ? "Connecting…" : "MiniPay"}</p>
+                  <p className="text-xs text-gray-500">Celo mobile wallet</p>
                 </div>
-              </Button>
-              
-              {connectors.map((connector) => (
-                <Button
-                  key={connector.id}
-                  variant="outline"
-                  className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
-                  onClick={() => {
-                    if (connector.id === 'metaMask') {
-                      connectMetaMask()
-                    } else if (connector.id === 'walletConnect') {
-                      connectWalletConnect()
-                    } else if (connector.id === 'coinbaseWallet') {
-                      connectCoinbaseWallet()
-                    }
-                  }}
-                  disabled={isPending}
-                >
-                  <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                    connector.id === 'metaMask' ? 'bg-orange-100' :
-                    connector.id === 'walletConnect' ? 'bg-blue-100' :
-                    connector.id === 'coinbaseWallet' ? 'bg-purple-100' : 'bg-gray-100'
-                  }`}>
-                    <WalletIcon className={`h-5 w-5 ${
-                      connector.id === 'metaMask' ? 'text-orange-600' :
-                      connector.id === 'walletConnect' ? 'text-blue-600' :
-                      connector.id === 'coinbaseWallet' ? 'text-purple-600' : 'text-gray-600'
-                    }`} />
-                  </div>
-                  <div className="text-left">
-                    <p className="font-semibold text-gray-900">
-                      {isPending ? "Connecting..." : connector.name}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      {connector.id === 'metaMask' ? 'Browser extension' :
-                       connector.id === 'walletConnect' ? 'Mobile wallets' :
-                       connector.id === 'coinbaseWallet' ? 'Self-custody wallet' : 'Wallet'}
-                    </p>
-                  </div>
-                </Button>
-              ))}
+                <ChevronRightIcon className="h-4 w-4 text-gray-300 transition-colors group-hover:text-[#19B17A]" />
+              </button>
 
-              <Button
-                variant="outline"
-                className="w-full h-16 flex items-center justify-start gap-4 p-4 border-2 hover:border-[#19B17A] hover:bg-green-50 cursor-pointer transition-all duration-200 bg-transparent"
-                onClick={() => connectStellarWallet()}
+              {connectors.map((connector) => {
+                const iconBg =
+                  connector.id === "metaMask" ? "from-orange-400 to-amber-500" :
+                  connector.id === "walletConnect" ? "from-blue-400 to-blue-600" :
+                  connector.id === "coinbaseWallet" ? "from-blue-500 to-indigo-600" :
+                  "from-gray-400 to-gray-600"
+                const subtitle =
+                  connector.id === "metaMask" ? "Browser extension" :
+                  connector.id === "walletConnect" ? "300+ mobile wallets" :
+                  connector.id === "coinbaseWallet" ? "Self-custody wallet" : "Wallet"
+                const Icon =
+                  connector.id === "walletConnect" ? ZapIcon : WalletIcon
+
+                return (
+                  <button
+                    key={connector.id}
+                    className="group flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 transition-all duration-150 hover:border-[#19B17A]/40 hover:bg-green-50 disabled:opacity-50"
+                    onClick={() => {
+                      if (connector.id === "metaMask") connectMetaMask()
+                      else if (connector.id === "walletConnect") connectWalletConnect()
+                      else if (connector.id === "coinbaseWallet") connectCoinbaseWallet()
+                    }}
+                    disabled={isPending}
+                  >
+                    <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${iconBg} shadow-sm`}>
+                      <Icon className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-semibold text-gray-900">{isPending ? "Connecting…" : connector.name}</p>
+                      <p className="text-xs text-gray-500">{subtitle}</p>
+                    </div>
+                    <ChevronRightIcon className="h-4 w-4 text-gray-300 transition-colors group-hover:text-[#19B17A]" />
+                  </button>
+                )
+              })}
+
+              {/* Stellar section */}
+              <p className="px-1 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Other Networks</p>
+
+              <button
+                className="group flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 transition-all duration-150 hover:border-[#19B17A]/40 hover:bg-green-50 disabled:opacity-50"
+                onClick={connectStellarWallet}
                 disabled={isConnecting}
               >
-                <div className="h-10 w-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-bold text-yellow-600">XLM</span>
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
+                  <span className="text-xs font-extrabold text-white">XLM</span>
                 </div>
-                <div className="text-left">
-                  <p className="font-semibold text-gray-900">Stellar Wallet</p>
-                  <p className="text-sm text-gray-600">XLM & Stellar assets</p>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-semibold text-gray-900">Stellar Wallet</p>
+                  <p className="text-xs text-gray-500">XLM &amp; Stellar assets</p>
                 </div>
-              </Button>
+                <ChevronRightIcon className="h-4 w-4 text-gray-300 transition-colors group-hover:text-[#19B17A]" />
+              </button>
             </div>
 
-            <div className="p-6 pt-0">
-              <p className="text-xs text-gray-500 text-center">
-                By connecting a wallet, you agree to our Terms of Service and Privacy Policy
+            {/* Footer */}
+            <div className="px-5 pb-6 pt-1 text-center">
+              <div className="mb-1.5 flex items-center justify-center gap-1.5">
+                <ShieldCheckIcon className="h-3.5 w-3.5 text-[#19B17A]" />
+                <span className="text-xs text-gray-400">Your keys, your crypto</span>
+              </div>
+              <p className="text-xs text-gray-400">
+                By connecting you agree to our{" "}
+                <span className="cursor-pointer text-[#19B17A] hover:underline">Terms</span>
+                {" "}and{" "}
+                <span className="cursor-pointer text-[#19B17A] hover:underline">Privacy Policy</span>
               </p>
             </div>
           </div>

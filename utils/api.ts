@@ -71,9 +71,11 @@ export async function fetchWithdrawChannels({
  * API utility functions for PeerPesa
  * Centralized API calls with base URL configuration
  */
+import { encryptPayLoad } from "@/services/encryption"
 
 // Base URL for PeerPesa API
-export const API_BASE_URL = 'https://api.peerpesa.co'
+// export const API_BASE_URL = 'https://api.peerpesa.co'
+export const API_BASE_URL = "http://localhost:3111"
 
 // API endpoints
 export const API_ENDPOINTS = {
@@ -81,12 +83,55 @@ export const API_ENDPOINTS = {
   EXCHANGE_RATES: '/dapp/system/withdraw/rates',
   GENERAL_EXCHANGE_RATES: '/currencies/quote',
   COUNTRIES: '/settings/countries',
+  WITHDRAW_CHANNELS: '/dapp/system/withdraw/channels',
   WITHDRAW_NETWORKS: '/dapp/system/withdraw/networks',
-  // Add more endpoints as needed
-  // USER_PROFILE: '/user/profile',
-  // TRANSACTIONS: '/user/transactions',
-  // BALANCE: '/user/balance',
+  COIN_RATE: '/rates',
 } as const
+
+// Coin rate response shape from GET /rates/:base_coin/:quote_coin
+export interface CoinRateData {
+  id?: string
+  token_name?: string
+  symbol?: string
+  icon?: string
+  price: {
+    base_coin: string
+    quote_coin: string
+    amount: number
+    rate: {
+      buy_rate: number
+      sale_rate: number
+      exchange_rate: number
+    }
+  }
+}
+
+export interface CoinRateResponse {
+  status: boolean
+  message?: string
+  data?: CoinRateData
+}
+
+/**
+ * Fetch the exchange rate between two coins/currencies.
+ * GET /rates/:base_coin/:quote_coin
+ * Returns price.rate.sale_rate as the exchange rate.
+ */
+export async function fetchCoinRate(
+  baseCoin: string,
+  quoteCoin: string
+): Promise<CoinRateData | null> {
+  if (!baseCoin || !quoteCoin) return null
+  try {
+    const response = await apiRequest<CoinRateResponse>(
+      `${API_ENDPOINTS.COIN_RATE}/${encodeURIComponent(baseCoin)}/${encodeURIComponent(quoteCoin)}`
+    )
+    return response?.data ?? null
+  } catch (error) {
+    console.error(`Error fetching coin rate ${baseCoin}/${quoteCoin}:`, error)
+    return null
+  }
+}
 
 // HTTP methods
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
@@ -192,9 +237,14 @@ export async function apiPost<T = any>(
   endpoint: string,
   data?: any
 ): Promise<T> {
+  let body: string | undefined
+  if (data) {
+    const encrypted = await encryptPayLoad(data)
+    body = JSON.stringify(encrypted)
+  }
   return apiRequest<T>(endpoint, {
     method: 'POST',
-    body: data ? JSON.stringify(data) : undefined,
+    body,
   })
 }
 
@@ -208,9 +258,14 @@ export async function apiPut<T = any>(
   endpoint: string,
   data?: any
 ): Promise<T> {
+  let body: string | undefined
+  if (data) {
+    const encrypted = await encryptPayLoad(data)
+    body = JSON.stringify(encrypted)
+  }
   return apiRequest<T>(endpoint, {
     method: 'PUT',
-    body: data ? JSON.stringify(data) : undefined,
+    body,
   })
 }
 
@@ -312,6 +367,46 @@ export async function getDefaultCurrencies() {
 // ): Promise<any> {
 //   return apiPut(`/user/${userId}/profile`, profileData)
 // }
+
+// Currency price rate structure embedded in supported-currencies response
+export interface CurrencyPriceRate {
+  buy_rate: number
+  sale_rate: number
+  exchange_rate: number
+}
+
+export interface CurrencyPrice {
+  id?: string
+  base_coin: string
+  quote_coin: string
+  amount?: number
+  rate: CurrencyPriceRate
+  market_details?: {
+    usd24hVolume?: number
+    usd24hChange?: number
+    usdMarketCap?: number
+  }
+  provider?: { sell?: string; buy?: string }
+  source?: string
+  status?: string
+  marketcap_amount?: number | Record<string, any>
+}
+
+/**
+ * Get the sale exchange rate for a currency by filtering supported currencies by symbol.
+ * Returns `currency.price.rate.sale_rate` (rate quoted in USD by default).
+ *
+ * @param currencies - Array of supported currency objects from the API
+ * @param symbol     - Token symbol to look up (e.g. "XLM", "USDC")
+ * @returns The sale_rate number, or null if not found
+ */
+export function getCurrencyRate(currencies: any[], symbol: string): number | null {
+  const coin = currencies.find(
+    (c) => String(c?.symbol || '').toUpperCase() === symbol.toUpperCase()
+  )
+  const rate = coin?.price?.rate?.sale_rate
+  return typeof rate === 'number' && Number.isFinite(rate) ? rate : null
+}
 
 // Exchange Rate Types
 export interface ExchangeRate {
@@ -468,11 +563,16 @@ export interface Network {
   id?: string
   name: string
   code?: string
-  type: string // 'bank' | 'mobile' | 'crypto'
+  type?: string
+  channelType?: string
+  channelIds?: string[]
+  status?: string
+  country?: string
   isActive?: boolean
   currency?: string
   fees?: number
   processingTime?: string
+  [key: string]: any
 }
 
 export interface NetworksResponse {
@@ -489,21 +589,101 @@ export interface NetworksResponse {
  * @param sort - Sort parameter
  * @returns Promise with networks array
  */
+// Transaction fees interfaces
+export interface TransactionFeesPayload {
+  from_currency: string
+  to_currency: string
+  process: string // 'withdraw' | 'send' | 'buy' | 'swap' | 'bulk_send'
+  network: string // network ID (UUID) of the sell currency's blockchain
+  amount: number
+}
+
+export interface TransactionFeeResult {
+  fee: number
+  feeCurrency: string
+  feePercentage?: number
+}
+
+export interface TransactionFeesResponse {
+  status?: boolean
+  message?: string
+  data?: {
+    fee?: number
+    fee_amount?: number
+    fees?: number
+    amount?: number
+    fee_percentage?: number
+    fee_currency?: string
+    [key: string]: any
+  }
+}
+
+/**
+ * Fetch transaction fees for a transfer
+ * POST /currencies/transaction/fees
+ */
+export async function fetchTransactionFees(
+  payload: TransactionFeesPayload
+): Promise<TransactionFeeResult | null> {
+  try {
+    const response = await apiPost<TransactionFeesResponse>(
+      '/currencies/transaction/fees',
+      payload
+    )
+    const d = response?.data
+    if (!d) return null
+    const fee = d.fee ?? d.fee_amount ?? d.fees ?? d.amount
+    if (typeof fee !== 'number') return null
+    return {
+      fee,
+      feeCurrency: d.fee_currency || payload.from_currency,
+      feePercentage: d.fee_percentage,
+    }
+  } catch (error) {
+    console.error('Error fetching transaction fees:', error)
+    return null
+  }
+}
+
+/**
+ * Fetch networks that support a set of channel IDs
+ * @param channelIds - Array of channel IDs to filter by
+ * @returns Promise with networks array
+ */
+export async function fetchNetworksByChannelIds(channelIds: string[]): Promise<Network[]> {
+  if (!channelIds.length) return []
+  try {
+    const params: Record<string, string> = {
+      channelIds: channelIds.join(','),
+    }
+    const response = await apiGet<NetworksResponse>(API_ENDPOINTS.WITHDRAW_NETWORKS, params)
+    if (Array.isArray(response)) return response
+    if (response.data && Array.isArray(response.data)) return response.data
+    if (response.networks && Array.isArray(response.networks)) return response.networks
+    console.warn('Unexpected networks-by-channelIds response format:', response)
+    return []
+  } catch (error) {
+    console.error('Error fetching networks by channelIds:', error)
+    return []
+  }
+}
+
 export async function fetchWithdrawNetworks(
   filter: string = 'bank',
   currency: string = 'USD',
   sort: string = ''
 ): Promise<Network[]> {
   try {
+    const channelType = filter === 'mobile' ? 'momo' : 'bank'
     const params: Record<string, string> = {
-      filter,
+      channelType,
       currency,
     }
-    
+
     if (sort) {
       params.sort = sort
     }
-    
+
     const response = await apiGet<NetworksResponse>(API_ENDPOINTS.WITHDRAW_NETWORKS, params)
     
     // Handle different possible response formats

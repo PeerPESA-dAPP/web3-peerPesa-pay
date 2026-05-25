@@ -283,8 +283,14 @@ export const getNetworkAssetStatus = (walletAssets: WalletAsset[], networks: str
  * @returns Formatted balance string
  */
 export const formatAssetBalance = (balance: number, decimals: number, symbol: string): string => {
-  const formattedBalance = (balance / Math.pow(10, decimals)).toFixed(decimals > 6 ? 6 : decimals)
-  return `${formattedBalance} ${symbol}`
+  const actual = balance / Math.pow(10, decimals)
+  const d = actual >= 1 ? 2 : 4
+  return `${actual.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })} ${symbol}`
+}
+
+const fmtBal = (b: number): string => {
+  const d = b >= 1 ? 2 : 4
+  return b.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })
 }
 
 /**
@@ -482,7 +488,7 @@ export const compareNativeCurrenciesWithWallet = (
     matched.push({
       currency: coin,
       balance,
-      balanceFormatted: String(balance),
+      balanceFormatted: fmtBal(balance),
       symbol: coin.symbol || '',
       name: coin.token_name || coin.name || coin.symbol || '',
       hasBalance: true,
@@ -490,6 +496,81 @@ export const compareNativeCurrenciesWithWallet = (
   }
 
   return matched
+}
+
+/**
+ * Return ALL system-supported native currencies for the connected network,
+ * including those with zero balance. Currencies that have a balance are sorted
+ * first, the rest follow alphabetically. Use this to display the full set of
+ * supported assets alongside live wallet balances.
+ */
+export const getAllSupportedCurrenciesForNetwork = (
+  currencies: any[],
+  balanceData: WalletBalanceData,
+  networkInfo: NetworkInfo,
+): MatchedCurrency[] => {
+  if (!currencies || currencies.length === 0) return []
+
+  const seen = new Set<string>()
+  const result: MatchedCurrency[] = []
+
+  for (const coin of currencies) {
+    if (!isCurrencyActive(coin)) continue
+    if (!isNativeTokenType(coin)) continue
+
+    const sym = (coin.symbol || '').toUpperCase()
+    if (!sym || seen.has(sym)) continue
+
+    // Resolve the balance first so we can use it as a secondary inclusion criterion
+    let balance = 0
+    if (networkInfo.walletType === 'stellar') {
+      if (sym === 'USDC') balance = balanceData.usdcStellarBalance
+      else if (sym === 'XLM') balance = balanceData.stellarBalance
+    } else {
+      const isGasToken = sym === networkInfo.nativeSymbol?.toUpperCase()
+      if (isGasToken && balanceData.nativeBalance?.displayValue != null) {
+        balance = Number(balanceData.nativeBalance.displayValue)
+      } else if (sym in balanceData.tokenBalances) {
+        balance = balanceData.tokenBalances[sym]
+      }
+    }
+    if (!Number.isFinite(balance) || balance < 0) balance = 0
+
+    // Inclusion logic: the coin is shown if it is either
+    //   (a) listed by the API for the current network, OR
+    //   (b) the connected wallet actually holds it (on-chain discovery via explorer)
+    let listedForNetwork = false
+    if (networkInfo.walletType === 'stellar') {
+      listedForNetwork = coinHasStellarNetwork(coin)
+    } else if (networkInfo.networkName) {
+      const aliases = getEvmNetworkAliases(networkInfo.networkName)
+      listedForNetwork = coinHasNetwork(coin, aliases)
+    }
+
+    const walletHoldsIt = networkInfo.walletType !== 'stellar' && balance > 0
+
+    if (!listedForNetwork && !walletHoldsIt) continue
+
+    seen.add(sym)
+
+    result.push({
+      currency: coin,
+      balance,
+      balanceFormatted: balance > 0 ? fmtBal(balance) : '0',
+      symbol: coin.symbol || '',
+      name: coin.token_name || coin.name || coin.symbol || '',
+      hasBalance: balance > 0,
+    })
+  }
+
+  // Sort: assets with balance first, then alphabetically by symbol
+  result.sort((a, b) => {
+    if (a.hasBalance && !b.hasBalance) return -1
+    if (!a.hasBalance && b.hasBalance) return 1
+    return a.symbol.localeCompare(b.symbol)
+  })
+
+  return result
 }
 
 /**
