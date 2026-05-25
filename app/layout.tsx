@@ -6,14 +6,22 @@ import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
 import { ThirdwebProviderWrapper } from "@/components/thirdweb-provider"
 import { GlobalErrorHandler } from "@/components/global-error-handler"
+import { SettingsProvider } from "@/contexts/SettingsContext"
+import { TransactionProvider } from "@/contexts/TransactionContext"
+import { CurrencyProvider } from "@/contexts/CurrencyContext"
+import { ChannelProvider } from "@/contexts/ChannelContext"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "PeerPesa Wallet",
-  description: "Mobile crypto wallet for CELO and multi-currency transactions",
+  title: "PeerPesa Pay",
+  description: "Instant, low cost, borderless payments across Africa",
   generator: "v0.app",
   icons: {
     icon: "/favicon.ico",
+  },
+  other: {
+    "talentapp:project_verification":
+      "080fbcdcb42a53a34390bc68a88a3fcb6bc0e49dd3cb1c4de1cb60cc726aa179da17a2a7bea44f04dcad973aaa5a7d8b49948ee3cbee74b93fd0d3b2cd181429",
   },
 }
 
@@ -24,11 +32,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
+      <body suppressHydrationWarning className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <GlobalErrorHandler>
           <ThirdwebProviderWrapper>
-            <Suspense fallback={null}>{children}</Suspense>
-            <Analytics />
+            <SettingsProvider>
+              <CurrencyProvider>
+                <TransactionProvider>
+                  <ChannelProvider>
+                    <Suspense fallback={null}>{children}</Suspense>
+                    <Analytics />
+                  </ChannelProvider>
+                </TransactionProvider>
+              </CurrencyProvider>
+            </SettingsProvider>
           </ThirdwebProviderWrapper>
         </GlobalErrorHandler>
       </body>

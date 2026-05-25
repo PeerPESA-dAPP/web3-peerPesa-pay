@@ -143,11 +143,12 @@ export function WagmiWalletInterface() {
           <Card className="w-full max-w-md">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                <span>Choose your preferred wallet to connect</span>
+                <span>Choose your preferred wallet to connect 11</span>
                 <Button
-                  variant="ghost"
+                  variant="destructive"
                   size="sm"
                   onClick={() => setShowWalletModal(false)}
+                  className="bg-red-600 hover:bg-red-700 text-white"
                 >
                   <XMarkIcon className="h-4 w-4" />
                 </Button>
@@ -164,7 +165,11 @@ export function WagmiWalletInterface() {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
-                      <WalletIcon className="h-5 w-5 text-gray-600" />
+                      {connector.name.toLowerCase().includes('stellar') ? (
+                        <img src="/extra/stellar.svg" alt="Stellar" className="h-5 w-5" />
+                      ) : (
+                        <img src="/extra/evm.svg" alt="EVM" className="h-5 w-5" />
+                      )}
                     </div>
                     <div className="text-left">
                       <div className="font-medium">{connector.name}</div>
@@ -291,8 +296,10 @@ export function WagmiWalletInterface() {
             <TransactionForms 
               onBack={() => {}}
               isWalletConnected={isConnected}
-              walletType={connectors.find(c => c.id === 'walletConnect')?.name || 'WalletConnect'}
+              walletType={chain ? getChainName(chain.id) : 'WalletConnect'}
               onConnectWallet={() => setShowWalletModal(true)}
+              walletNetwork={chain ? getChainName(chain.id) : undefined}
+              transactionType="send"
             />
           </TabsContent>
           
@@ -303,9 +310,14 @@ export function WagmiWalletInterface() {
           </TabsContent>
           
           <TabsContent value="swap" className="mt-4">
-            <div className="text-center py-8 text-gray-500">
-              Swap functionality coming soon...
-            </div>
+            <TransactionForms 
+              onBack={() => {}}
+              isWalletConnected={isConnected}
+              walletType={chain ? getChainName(chain.id) : 'WalletConnect'}
+              onConnectWallet={() => setShowWalletModal(true)}
+              walletNetwork={chain ? getChainName(chain.id) : undefined}
+              transactionType="swap"
+            />
           </TabsContent>
         </Tabs>
 

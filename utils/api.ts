@@ -1,4 +1,73 @@
 /**
+ * Channel interfaces
+ */
+export interface Channel {
+  id?: string
+  name: string
+  network: string
+  rampType: string // 'withdraw', etc.
+  channelType: string // 'bank', 'mobile', etc.
+  currency: string
+  status: string | boolean
+  minAmount?: number
+  maxAmount?: number
+  [key: string]: any
+}
+
+export interface ChannelsResponse {
+  data?: Channel[]
+  channels?: Channel[]
+  success?: boolean
+  message?: string
+}
+
+/**
+ * Fetch withdraw channels based on filter and currency
+ * @param rampType - Ramp type ('withdraw')
+ * @param channelType - Channel type ('bank' | 'mobile')
+ * @param currency - Currency code (e.g., 'UGX', 'KES')
+ * @param status - Channel status ('active')
+ * @returns Promise with channels array
+ */
+export async function fetchWithdrawChannels({
+  rampType = 'withdraw',
+  channelType = '',
+  currency = '',
+  status = 'active',
+}: {
+  rampType?: string
+  channelType?: string
+  currency?: string
+  status?: string
+}): Promise<Channel[]> {
+  try {
+    const params: Record<string, string> = {
+      rampType,
+      channelType,
+      currency,
+      status,
+    }
+    // Remove empty params
+    Object.keys(params).forEach((k) => {
+      if (!params[k]) delete params[k]
+    })
+    const response = await apiGet<ChannelsResponse>('/dapp/system/withdraw/channels', params)
+    if (Array.isArray(response)) {
+      return response
+    } else if (response.data && Array.isArray(response.data)) {
+      return response.data
+    } else if (response.channels && Array.isArray(response.channels)) {
+      return response.channels
+    } else {
+      console.warn('Unexpected channels response format:', response)
+      return []
+    }
+  } catch (error) {
+    console.error('Error fetching withdraw channels:', error)
+    return []
+  }
+}
+/**
  * API utility functions for PeerPesa
  * Centralized API calls with base URL configuration
  */
@@ -10,6 +79,9 @@ export const API_BASE_URL = 'https://api.peerpesa.co'
 export const API_ENDPOINTS = {
   SUPPORTED_CURRENCIES: '/dapp/supported/currencies',
   EXCHANGE_RATES: '/dapp/system/withdraw/rates',
+  GENERAL_EXCHANGE_RATES: '/currencies/quote',
+  COUNTRIES: '/settings/countries',
+  WITHDRAW_NETWORKS: '/dapp/system/withdraw/networks',
   // Add more endpoints as needed
   // USER_PROFILE: '/user/profile',
   // TRANSACTIONS: '/user/transactions',
@@ -250,9 +322,14 @@ export interface ExchangeRate {
 }
 
 export interface ExchangeRatesResponse {
-  rates: ExchangeRate[]
-  baseCurrency: string
-  timestamp: number
+  data?: {
+    rates: ExchangeRate[]
+    baseCurrency: string
+    timestamp: number
+  }
+  rates?: ExchangeRate[]
+  baseCurrency?: string
+  timestamp?: number
 }
 
 /**
@@ -267,5 +344,182 @@ export async function fetchExchangeRates(currency: string = 'USD'): Promise<Exch
   } catch (error) {
     console.error('Error fetching exchange rates:', error)
     throw error
+  }
+}
+
+// General exchange rate interfaces
+export interface GeneralExchangeRate {
+  currency: string
+  rate: number
+  timestamp: number
+  source?: string
+  price?: {
+    base_coin?: string
+    quote_coin?: string
+    marketcap_amount?: number | string
+    [key: string]: any
+  }
+}
+
+export interface GeneralExchangeRatesResponse {
+  data?: {
+    rates: GeneralExchangeRate[]
+    base_currency: string
+    quote_currency: string
+    timestamp: number
+  }
+  rates?: GeneralExchangeRate[]
+  base_currency?: string
+  quote_currency?: string
+  timestamp?: number
+}
+
+/**
+ * Fetch general exchange rates for a specific quote currency
+ * @param quoteCurrency - Quote currency code (e.g., 'USD', 'EUR')
+ * @returns Promise with general exchange rates
+ */
+export async function fetchGeneralExchangeRates(quoteCurrency: string = 'USD'): Promise<GeneralExchangeRatesResponse> {
+  try {
+    const response = await apiGet(`${API_ENDPOINTS.GENERAL_EXCHANGE_RATES}/${quoteCurrency}`)
+    return response
+  } catch (error) {
+    console.error('Error fetching general exchange rates:', error)
+    throw error
+  }
+}
+
+// Country interfaces
+export interface Country {
+  id?: string | number
+  code?: string
+  name?: string
+  country_name?: string  // Alternative name field from API
+  alpha_3_code?: string  // ISO 3166-1 alpha-3 code
+  alpha_2_code?: string  // ISO 3166-1 alpha-2 code
+  dialCode?: string
+  dial_code?: string     // Alternative dial code field from API
+  flag?: string
+  emoji_flag?: string    // Alternative flag field from API
+  isActive?: boolean
+  is_active?: boolean    // Alternative active field from API
+  currency?: string
+  currency_code?: string // Alternative currency field from API
+  [key: string]: any     // Allow additional fields from API
+}
+
+export interface CountriesResponse {
+  data?: Country[]
+  countries?: Country[]
+  success?: boolean
+  message?: string
+}
+
+/**
+ * Fetch countries list from API
+ * @returns Promise with countries array
+ */
+export async function fetchCountries(): Promise<Country[]> {
+  try {
+    const response = await apiGet<CountriesResponse>(API_ENDPOINTS.COUNTRIES)
+    
+    // Handle different possible response formats
+    if (Array.isArray(response)) {
+      return response
+    } else if (response.data && Array.isArray(response.data)) {
+      return response.data
+    } else if (response.countries && Array.isArray(response.countries)) {
+      return response.countries
+    } else {
+      console.warn('Unexpected countries response format:', response)
+      return []
+    }
+  } catch (error) {
+    console.error('Error fetching countries:', error)
+    // Return empty array on error so the app continues to work
+    return []
+  }
+}
+
+/**
+ * Get countries with fallback to default list
+ * @returns Promise with countries array
+ */
+export async function getCountriesWithFallback(): Promise<Country[]> {
+  try {
+    const countries = await fetchCountries()
+    
+    // If we got countries from API, return them
+    if (countries && countries.length > 0) {
+      return countries
+    }
+    
+    // Return empty array as fallback
+    // The phone input component will use its built-in country list
+    return []
+  } catch (error) {
+    console.error('Error fetching countries with fallback:', error)
+    return []
+  }
+}
+
+// Network interfaces
+export interface Network {
+  id?: string
+  name: string
+  code?: string
+  type: string // 'bank' | 'mobile' | 'crypto'
+  isActive?: boolean
+  currency?: string
+  fees?: number
+  processingTime?: string
+}
+
+export interface NetworksResponse {
+  data?: Network[]
+  networks?: Network[]
+  success?: boolean
+  message?: string
+}
+
+/**
+ * Fetch withdraw networks based on filter and currency
+ * @param filter - Network filter type ('bank' | 'mobile' | 'crypto')
+ * @param currency - Currency code (e.g., 'UGX', 'KES')
+ * @param sort - Sort parameter
+ * @returns Promise with networks array
+ */
+export async function fetchWithdrawNetworks(
+  filter: string = 'bank',
+  currency: string = 'USD',
+  sort: string = ''
+): Promise<Network[]> {
+  try {
+    const params: Record<string, string> = {
+      filter,
+      currency,
+    }
+    
+    if (sort) {
+      params.sort = sort
+    }
+    
+    const response = await apiGet<NetworksResponse>(API_ENDPOINTS.WITHDRAW_NETWORKS, params)
+    
+    // Handle different possible response formats
+    if (Array.isArray(response)) {
+      return response
+    } else if (response.data && Array.isArray(response.data)) {
+      return response.data
+    } else if (response.networks && Array.isArray(response.networks)) {
+      return response.networks
+    } else {
+      console.warn('Unexpected networks response format:', response)
+      return []
+    }
+  } catch (error) {
+    console.error('Error fetching withdraw networks:', error)
+    // Return empty array on error so the app continues to work
+    return []
   }
 }
