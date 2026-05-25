@@ -75,7 +75,7 @@ import { encryptPayLoad } from "@/services/encryption"
 
 // Base URL for PeerPesa API
 // export const API_BASE_URL = 'https://api.peerpesa.co'
-export const API_BASE_URL = "http://localhost:3111"
+export const API_BASE_URL = "https://api.peerpesa.co"
 
 // API endpoints
 export const API_ENDPOINTS = {
