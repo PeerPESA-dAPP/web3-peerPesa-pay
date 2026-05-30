@@ -26,9 +26,9 @@ jobs:
           push: true
           tags: your-dockerhub-username/your-nextjs-app:latest
           build-args: |
-            NEXT_PUBLIC_CMS_URL=${{ secrets.NEXT_PUBLIC_CMS_URL }} # Example for build-time environment variable
+            NEXT_PUBLIC_CMS_URL=${{ secrets.NEXT_PUBLIC_CMS_URL }}
 
-      - name: Deploy to Server (Example: SSH)
+      - name: "Deploy to Server via SSH"
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.SSH_HOST }}
