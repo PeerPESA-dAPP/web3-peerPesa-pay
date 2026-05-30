@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { createPublicClient, http, formatUnits } from 'viem'
-import { celo, mainnet, polygon, arbitrum, optimism, base, bsc, avalanche, alephZeroTestnet } from 'viem/chains'
+import { celo, mainnet, polygon, arbitrum, optimism, base, bsc, avalanche } from 'viem/chains'
 import { 
   ConnectWallet,
   useAddress,
@@ -13,21 +13,37 @@ import {
   useConnectionStatus,
   useTokenBalance,
   useBalance,
-  useConnect,
   metamaskWallet,
   coinbaseWallet,
   walletConnect,
   rainbowWallet,
   trustWallet,
+  zerionWallet,
+  phantomWallet,
+  okxWallet,
+  rabbyWallet,
+  coin98Wallet,
+  coreWallet,
+  cryptoDefiWallet,
+  safeWallet,
+  oneKeyWallet,
+  magicEdenWallet,
+  xdefiWallet,
+  embeddedWallet,
+  localWallet,
+  bloctoWallet,
+  frameWallet,
+  imTokenWallet,
 } from "@thirdweb-dev/react"
-import { 
-  StellarWalletsKit, 
-  FreighterModule, 
-  AlbedoModule, 
+import {
+  StellarWalletsKit,
+  FreighterModule,
+  AlbedoModule,
   xBullModule,
   RabetModule,
-  WalletNetwork
+  WalletNetwork,
 } from "@creit.tech/stellar-wallets-kit"
+import { WalletConnectModule, WalletConnectAllowedMethods } from "@creit.tech/stellar-wallets-kit/modules/walletconnect.module"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -86,7 +102,7 @@ import {
 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { useMiniPay } from "@/hooks/use-minipay"
-import { WalletNotifications, useHasActiveNotifications, NotificationsPanel, useRecordToastNotifications } from "@/components/wallet-notifications"
+import { WalletNotifications, useHasActiveNotifications, useRecordToastNotifications } from "@/components/wallet-notifications"
 import {
   parseSwapUrlParams,
   isSwapModeFromUrl,
@@ -125,6 +141,13 @@ interface ActivityFetchResult {
   nextBlock?: number | null
   mode: "stellar" | "evm-explorer" | "evm-rpc"
 }
+
+// Built once at module level — avoids re-creation on every render
+const _otherWalletsConfig = (() => {
+  const wc = walletConnect()
+  wc.meta = { ...wc.meta, name: 'Other Wallets' }
+  return wc
+})()
 
 export function ThirdwebWalletInterface() {
   const searchParams = useSearchParams()
@@ -199,7 +222,6 @@ export function ThirdwebWalletInterface() {
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
 
-  const connectWalletRef = useRef<HTMLDivElement>(null)
   const [usdValue, setUsdValue] = useState(0.00)
   const [totalBalanceValue, setTotalBalanceValue] = useState(0.00)
   const [currencyFetching, setCurrencyFetching] = useState(false)
@@ -407,8 +429,6 @@ export function ThirdwebWalletInterface() {
       }> = []
 
 
-      console.log("11111 tokens", tokens)
-
       for (const token of tokens) {
 
         const rawBalance = token?.balance || '0'
@@ -428,8 +448,7 @@ export function ThirdwebWalletInterface() {
         }
       }
 
-      console.log(`[fetchWalletTokenBalances] Explorer API returned ${tokenDetails.length} tokens with balance > 0 for ${walletAddress} on chain ${chainId}`, balances, tokenDetails)
-      return { balances, tokenDetails }      
+      return { balances, tokenDetails }
     } catch (error) {
       console.warn('[fetchWalletTokenBalances] Explorer tokenlist failed:', error)
       return null
@@ -451,7 +470,6 @@ export function ThirdwebWalletInterface() {
       // 1. Try explorer tokenlist API first (discovers ALL tokens with balance > 0)
       const explorerResult = await fetchWalletTokenBalances(address, currentChainId)
       if (explorerResult && Object.keys(explorerResult.balances).length > 0) {
-        console.log(`[tokenBalances] Explorer discovered ${Object.keys(explorerResult.balances).length} tokens with balance:`, explorerResult.balances)
         setTokenBalances(explorerResult.balances)
         setTokenBalancesLoading(false)
         return
@@ -550,89 +568,6 @@ export function ThirdwebWalletInterface() {
       default:
         return true // For WalletConnect and others
     }
-  }
-
-  // Function to open ConnectWallet modal programmatically
-  const openConnectWalletModal = async () => {
-    try {
-      console.log('Attempting to open ConnectWallet modal...')
-      
-      // Wait a bit for the DOM to be ready
-      await new Promise(resolve => setTimeout(resolve, 200))
-      
-      // First try using the ref
-      if (connectWalletRef.current) {
-        const button = connectWalletRef.current.querySelector('button')
-        if (button) {
-          // console.log('Found ConnectWallet button via ref, clicking...')
-          (button as HTMLButtonElement).click()
-          return
-        } else {
-          console.log('No button found in ref container')
-        }
-      } else {
-        console.log('ConnectWallet ref is null')
-      }
-      
-      // Try multiple selectors to find the ConnectWallet button
-      const selectors = [
-        '[data-thirdweb-connect-wallet] button',
-        '[data-testid*="connect-wallet"]',
-        '[data-testid*="connect"]',
-        'button[aria-label*="connect"]',
-        'button:contains("Connect")',
-      ]
-      
-      for (const selector of selectors) {
-        const button = document.querySelector(selector)
-        if (button) {
-          // console.log(`Found ConnectWallet button with selector: ${selector}`)
-          (button as HTMLButtonElement).click()
-          return
-        }
-      }
-      
-      // Try to find any button with "Connect" text
-      const allButtons = document.querySelectorAll('button')
-      for (const button of allButtons) {
-        if (button.textContent?.includes('Connect') || button.textContent?.includes('connect')) {
-          // console.log('Found button with Connect text:', button.textContent)
-          (button as HTMLButtonElement).click()
-          return
-        }
-      }
-      
-      // If no button found, try to trigger via events
-      console.log('No ConnectWallet button found, trying to trigger via events...')
-      
-      // Try multiple event approaches
-      const events = [
-        new CustomEvent('thirdweb:open-modal'),
-        new CustomEvent('connect-wallet'),
-        new Event('click', { bubbles: true }),
-      ]
-      
-      for (const event of events) {
-        window.dispatchEvent(event)
-        document.dispatchEvent(event)
-      }
-      
-      console.log('ConnectWallet modal should be opening...')
-      
-    } catch (error) {
-      console.error('Failed to open ConnectWallet modal:', error)
-    }
-  }
-
-
-
-
-
-  
-  // Function to open the Thirdweb ConnectWallet modal for wallet selection
-  const openConnectWallet = async () => {
-    console.log('Opening ConnectWallet modal for wallet selection...')
-    await openConnectWalletModal()
   }
 
 
@@ -769,13 +704,6 @@ export function ThirdwebWalletInterface() {
           setShowWalletModal(false)
         }
       }
-
-      // Log connection attempt for analytics
-      console.log('Albedo wallet connection attempted:', {
-        timestamp: new Date().toISOString(),
-        hasExtension: !!(window as any).albedo,
-        userAgent: navigator.userAgent
-      })
 
     } catch (error) {
       console.error("Albedo connection error:", error)
@@ -932,14 +860,29 @@ export function ThirdwebWalletInterface() {
     const initializeKit = async () => {
       if (typeof window !== 'undefined') {
         try {
+          const wcProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || ""
+          const modules: any[] = [
+            new FreighterModule(),
+            new AlbedoModule(),
+            new xBullModule(),
+            new RabetModule(),
+          ]
+          if (wcProjectId) {
+            modules.push(
+              new WalletConnectModule({
+                projectId: wcProjectId,
+                name: "PeerPesa",
+                description: "PeerPesa Pay — cross-border crypto transfers",
+                url: "https://peerpesa.co",
+                icons: ["https://peerpesa.co/images/peerpesa-logo.png"],
+                method: WalletConnectAllowedMethods.SIGN,
+                network: WalletNetwork.PUBLIC,
+              })
+            )
+          }
           const kit = new StellarWalletsKit({
             network: WalletNetwork.PUBLIC,
-            modules: [
-              new FreighterModule(),
-              new AlbedoModule(),
-              new xBullModule(),
-              new RabetModule()
-            ]
+            modules,
           })
           setStellarKit(kit)
         } catch (error) {
@@ -964,7 +907,6 @@ export function ThirdwebWalletInterface() {
   const connectionStatus = useConnectionStatus()
 
   // Connect hook for direct wallet connection
-  const connect = useConnect()
 
   const isConnected = connectionStatus === "connected"
 
@@ -974,12 +916,15 @@ export function ThirdwebWalletInterface() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
+  const isTrustWalletConnected = mounted && isConnected && !!(typeof window !== 'undefined' && (window as any).ethereum?.isTrust)
+
   // Sync EVM connection status — reset token balances when wallet disconnects
   useEffect(() => {
     if (isConnected && address) {
       if (!(walletType === 'stellar' && stellarAddress)) {
         setWalletType('evm')
       }
+      setShowWalletModal(false)
 
       toast({
         title: "Wallet Connected",
@@ -1831,13 +1776,18 @@ export function ThirdwebWalletInterface() {
                                     handleSwitchChain(42220)
                                     setShowSettingsDropdown(false)
                                   }}
-                                  className={`px-3 py-2 text-xs rounded-md border ${
+                                  className={`px-3 py-2 text-xs rounded-md border flex items-center justify-between gap-1 ${
                                     chain?.chainId === 42220
                                       ? "bg-yellow-50 text-yellow-700 border-yellow-200"
-                                      : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                                      : isTrustWalletConnected
+                                        ? "bg-white text-gray-700 border-[#19B17A]/40 hover:bg-green-50"
+                                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
                                   }`}
                                 >
-                                  Celo
+                                  <span>Celo</span>
+                                  {isTrustWalletConnected && (
+                                    <span className="text-[8px] font-bold bg-[#19B17A] text-white px-1 py-0.5 rounded-full leading-none">TW</span>
+                                  )}
                                 </button>
                                 <button
                                   onClick={() => {
@@ -1852,6 +1802,58 @@ export function ThirdwebWalletInterface() {
                                 >
                                   zkSync Era
                                 </button>
+
+                                {/* Stellar — Trust Wallet supports Stellar via WalletConnect */}
+                                {isTrustWalletConnected && stellarKit && (
+                                  <button
+                                    className={`col-span-2 mt-1 w-full rounded-lg border px-3 py-2.5 flex items-center gap-2.5 transition-all ${
+                                      stellarAddress
+                                        ? "bg-[#19B17A]/10 border-[#19B17A]/40 text-[#19B17A]"
+                                        : "bg-white border-[#19B17A]/30 hover:bg-[#19B17A]/5 hover:border-[#19B17A]/50 text-gray-700"
+                                    }`}
+                                    onClick={async () => {
+                                      setShowSettingsDropdown(false)
+                                      try {
+                                        await stellarKit.openModal({
+                                          onWalletSelected: async (wallet: any) => {
+                                            try {
+                                              stellarKit.setWallet(wallet.id)
+                                              const addressResponse = await stellarKit.getAddress({ skipRequestAccess: false })
+                                              if (addressResponse.address) {
+                                                setStellarAddress(addressResponse.address)
+                                                setWalletType('stellar')
+                                                fetchStellarBalance(addressResponse.address)
+                                                localStorage.setItem('peerpesa_wallet_type', 'stellar')
+                                                localStorage.setItem('peerpesa_stellar_address', addressResponse.address)
+                                                toast({ title: "✅ Stellar Connected", description: `${addressResponse.address.slice(0, 8)}...${addressResponse.address.slice(-8)}`, variant: "default" })
+                                              }
+                                            } catch (err) {
+                                              toast({ title: "Connection Failed", description: (err as any)?.message || "Stellar connection declined", variant: "destructive" })
+                                            }
+                                          },
+                                          modalTitle: 'Connect Trust Wallet — Stellar Network',
+                                          notAvailableText: 'Use WalletConnect to connect Trust Wallet for Stellar',
+                                        })
+                                      } catch (err) {
+                                        toast({ title: "Error", description: "Could not open Stellar wallet selection", variant: "destructive" })
+                                      }
+                                    }}
+                                  >
+                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${stellarAddress ? "bg-[#19B17A]" : "bg-gray-100"}`}>
+                                      <img src="/extra/stellar.svg" alt="Stellar" className="h-3 w-3" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                      <p className="text-xs font-semibold leading-none">Stellar</p>
+                                      {stellarAddress
+                                        ? <p className="text-[10px] font-mono mt-0.5 opacity-70">{stellarAddress.slice(0, 6)}...{stellarAddress.slice(-4)}</p>
+                                        : <p className="text-[10px] mt-0.5 opacity-60">Trust Wallet · Stellar network</p>
+                                      }
+                                    </div>
+                                    {stellarAddress && (
+                                      <span className="text-[9px] font-bold uppercase tracking-wide bg-[#19B17A] text-white px-1.5 py-0.5 rounded-full">Live</span>
+                                    )}
+                                  </button>
+                                )}
                                 </div>
                               )}
                             </div>
@@ -1905,32 +1907,6 @@ export function ThirdwebWalletInterface() {
 
 
                 <div className="flex gap-2">
-                 {/* ConnectWallet button - accessible for programmatic clicks */}
-                 <div 
-                   ref={connectWalletRef}
-                   data-thirdweb-connect-wallet 
-                   style={{ 
-                     position: 'absolute', 
-                     left: '-9999px', 
-                     width: '1px', 
-                     height: '1px', 
-                     overflow: 'hidden',
-                     visibility: 'hidden',
-                     pointerEvents: 'auto',
-                     zIndex: 9999
-                   }}
-                 >
-                  <ConnectWallet
-                    theme="light"
-                    modalSize="compact"
-                    welcomeScreen={{
-                      title: "Connect to PeerPesa",
-                      subtitle: "Your gateway to the decentralized web",
-                    }}
-                    modalTitleIconUrl="/images/peerpesa-logo.png"
-                    btnTitle="Connect Wallet"
-                    /> 
-                 </div>
                  <Button
                     onClick={() => setShowWalletModal(true)}
                     variant="outline"
@@ -2842,30 +2818,43 @@ export function ThirdwebWalletInterface() {
               </div>
 
               {/* Wallet options */}
-              <div className="px-4 py-4 space-y-1">
+              <div className="px-4 py-3 space-y-2">
 
                 {/* EVM section */}
                 <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">EVM Networks</p>
 
-                <button
-                  className="group flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 transition-all duration-150 hover:border-[#19B17A]/40 hover:bg-green-50"
-                  onClick={async () => {
-                    setShowWalletModal(false)
-                    setTimeout(async () => { await openConnectWallet() }, 100)
-                  }}
-                >
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-400 to-indigo-600 shadow-sm overflow-hidden">
-                    <img src="/extra/evm.svg" alt="EVM" className="h-6 w-6" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                {/* Thirdweb Connect — transparent ConnectWallet overlay captures the click */}
+                <div className="group relative rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden transition-all duration-150 hover:border-[#19B17A]/40 hover:bg-green-50">
+                  <div className="pointer-events-none flex items-center gap-3 px-3 py-3">
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#19B17A] shadow-sm overflow-hidden">
+                      <img src="/extra/evm.svg" alt="EVM" className="h-6 w-6" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-semibold text-gray-900">Thirdweb Connect</p>
+                      <p className="text-xs text-gray-500">MetaMask, Coinbase &amp; more</p>
+                    </div>
+                    <ChevronRightIcon className="h-4 w-4 text-gray-300 group-hover:text-[#19B17A]" />
                   </div>
-                  <div className="flex-1 text-left">
-                    <p className="text-sm font-semibold text-gray-900">Connect EVM Wallet</p>
-                    <p className="text-xs text-gray-500">MetaMask, WalletConnect, Coinbase &amp; more</p>
-                  </div>
-                  <ChevronRightIcon className="h-4 w-4 text-gray-300 transition-colors group-hover:text-[#19B17A]" />
-                </button>
+                  {/* Only mount when disconnected — prevents ConnectedWalletDetails from calling useQueryClient */}
+                  {!isConnected && !stellarAddress && (
+                    <div className="absolute inset-0 opacity-0">
+                      <ConnectWallet
+                        theme="light"
+                        modalSize="compact"
+                        btnTitle="Connect"
+                        supportedWallets={[_otherWalletsConfig]}
+                        style={{ width: '100%', height: '100%', display: 'block' }}
+                      />
+                    </div>
+                  )}
+                </div>
 
                 {/* Stellar section */}
-                <p className="px-1 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Stellar Network</p>
+                <div className="flex items-center gap-2 pt-2 pb-0.5">
+                  <div className="h-px flex-1 bg-gray-100" />
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Stellar Network</span>
+                  <div className="h-px flex-1 bg-gray-100" />
+                </div>
 
                 <div ref={stellarKitRef} className="hidden" />
                 {stellarKit ? (
@@ -2923,18 +2912,18 @@ export function ThirdwebWalletInterface() {
                       }
                     }}
                   >
-                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-sm overflow-hidden">
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#19B17A] shadow-sm overflow-hidden">
                       <img src="/extra/stellar.svg" alt="Stellar" className="h-6 w-6" onError={(e) => { e.currentTarget.style.display = 'none' }} />
                     </div>
                     <div className="flex-1 text-left">
                       <p className="text-sm font-semibold text-gray-900">Connect Stellar Wallet</p>
-                      <p className="text-xs text-gray-500">Freighter, Albedo, XBull &amp; more</p>
+                      <p className="text-xs text-gray-500">Freighter · Albedo · xBull · WalletConnect</p>
                     </div>
                     <ChevronRightIcon className="h-4 w-4 text-gray-300 transition-colors group-hover:text-[#19B17A]" />
                   </button>
                 ) : (
-                  <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 opacity-50 cursor-not-allowed">
-                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-sm overflow-hidden">
+                  <div className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 opacity-50 cursor-not-allowed">
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#19B17A] shadow-sm overflow-hidden">
                       <img src="/extra/stellar.svg" alt="Stellar" className="h-6 w-6" onError={(e) => { e.currentTarget.style.display = 'none' }} />
                     </div>
                     <div className="flex-1 text-left">

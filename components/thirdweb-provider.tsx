@@ -55,7 +55,9 @@ export function ThirdwebProviderWrapper({ children }: ThirdwebProviderWrapperPro
            message.includes('DialogContent') ||
            message.includes('DialogTitle') ||
            message.includes('aria-describedby') ||
-           message.includes('Connection failed'))
+           message.includes('Connection failed') ||
+           message.includes('No QueryClient set') ||
+           message.includes('QueryClientProvider'))
         ) {
           // Silently ignore these harmless errors/warnings from thirdweb
           return

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const pkg = require\\('@thirdweb-dev/react/package.json'\\); console.log\\(pkg.version\\)\")",
+      "Bash(node -e \"const kit = require\\('@creit.tech/stellar-wallets-kit'\\); console.log\\(Object.keys\\(kit\\).filter\\(k => k.includes\\('Module'\\) || k.includes\\('Wallet'\\) || k.includes\\('Connect'\\)\\)\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"const { bloctoWallet, frameWallet, imTokenWallet } = require\\('@thirdweb-dev/react'\\); console.log\\(typeof bloctoWallet, typeof frameWallet, typeof imTokenWallet\\)\")",
+      "Bash(node -e \"const r = require\\('@thirdweb-dev/react'\\); const w = r.useConnect; console.log\\(typeof w\\)\")",
+      "Bash(node -e \"const r = require\\('@thirdweb-dev/react'\\); console.log\\(Object.keys\\(r\\).filter\\(k => k.toLowerCase\\(\\).includes\\('walletconfig'\\) || k.toLowerCase\\(\\).includes\\('activewal'\\) || k.toLowerCase\\(\\).includes\\('connector'\\)\\)\\)\")",
+      "Bash(node -e \"const r = require\\('@thirdweb-dev/react'\\); console.log\\(typeof r.useIsWalletModalOpen, typeof r.useSetIsWalletModalOpen, typeof r.useSetWalletModalConfig\\)\")",
+      "Bash(node -e \"console.log\\(require\\('@tanstack/react-query/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\(require\\('/Users/paulo/Documents/nextjs/peerpesa/pay/node_modules/@thirdweb-dev/react/node_modules/@tanstack/react-query/package.json'\\).version\\)\")",
+      "Bash(node -e \"const r = require\\('@thirdweb-dev/react'\\); console.log\\(typeof r.QueryClient, typeof r.QueryClientProvider\\)\")"
+    ]
+  }
+}
