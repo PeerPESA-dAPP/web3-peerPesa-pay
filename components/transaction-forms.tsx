@@ -131,9 +131,6 @@ export function TransactionForms({  onBack,
     }
     return currencies && currencies.length > 0 ? currencies[0]?.symbol || "" : ""
   })
-  const [selectedRoute, setSelectedRoute] = useState("")
-  const [showAssetSelector, setShowAssetSelector] = useState(false)
-  const [showWalletSelector, setShowWalletSelector] = useState(false)
   const [paymentMode, setPaymentMode] = useState("bank")
   const [selectedBank, setSelectedBank] = useState("")
   const [bankAccountName, setBankAccountName] = useState("")
@@ -495,10 +492,6 @@ export function TransactionForms({  onBack,
     setSwapToNetwork(tempNetwork)
   }
 
-  // Removed dummy data - all data now comes from props
-  const recentAddresses: any[] = []
-  const cryptoAssets: any[] = []
-  
   // Reload networks and channels whenever currency pair or payment type changes
   useEffect(() => {
     if ((activeTab !== "send" && activeTab !== "buy") || !receiveCurrency || !paymentMode) return
@@ -575,7 +568,6 @@ export function TransactionForms({  onBack,
       setBankAccountName("Account Verified - Name Retrieved")
       
       // Show success message (you can add toast notification here)
-      console.log("Account verified successfully")
     } catch (error) {
       console.error("Account verification failed:", error)
     } finally {
@@ -594,7 +586,6 @@ export function TransactionForms({  onBack,
       setPhoneHolderName("Phone Verified - Name Retrieved")
       
       // Show success message (you can add toast notification here)
-      console.log("Phone verified successfully")
     } catch (error) {
       console.error("Phone verification failed:", error)
     } finally {
@@ -976,53 +967,6 @@ export function TransactionForms({  onBack,
             </Button>
           </div>
         )}
-        {/* Wallet Selector Modal */}
-        
-
-        {/* Asset Selector Modal */}
-        {showAssetSelector && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Select asset</h3>
-                <Button variant="ghost" size="sm" onClick={() => setShowAssetSelector(false)}>
-                  ×
-                </Button>
-              </div>
-
-              <Select defaultValue="all">
-                <SelectTrigger className="mb-4">
-                  <SelectValue placeholder="All networks" />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  <SelectItem value="all" className="bg-white hover:bg-gray-50">All networks</SelectItem>
-                  <SelectItem value="ethereum" className="bg-white hover:bg-gray-50">Ethereum</SelectItem>
-                  <SelectItem value="optimism" className="bg-white hover:bg-gray-50">Optimism</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <div className="relative mb-4">
-                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Search" className="pl-10" />
-              </div>
-
-              <div className="space-y-2">
-                {cryptoAssets.map((asset, index) => (
-                  <div key={index} className="flex items-center gap-3 p-3 rounded-lg cursor-pointer hover:bg-gray-50">
-                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm">
-                      {asset.icon}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium">{asset.symbol}</div>
-                      <div className="text-sm text-gray-500">on {asset.network}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Transaction Form Card */}
         {showReview ? (
           /* Review Screen */

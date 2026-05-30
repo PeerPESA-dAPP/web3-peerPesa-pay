@@ -13,11 +13,27 @@ import { ChannelProvider } from "@/contexts/ChannelContext"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "PeerPesa Pay",
-  description: "Instant, low cost, borderless payments across Africa",
+  title: "Peerpesa Pay",
+  description:
+    "Send, Buy & Swap Celo (CELO) and Stellar (XLM) Instantly | Fast crypto transactions with low fees. Secure platform for buying, selling, and swapping CELO, XLM & more.",
   generator: "v0.app",
   icons: {
-    icon: "/favicon.ico",
+    icon: "/images/peerpesa-web3.png",
+    shortcut: "/images/peerpesa-web3.png",
+    apple: "/images/peerpesa-web3.png",
+  },
+  openGraph: {
+    title: "Peerpesa Pay",
+    description:
+      "Send, Buy & Swap Celo (CELO) and Stellar (XLM) Instantly | Fast crypto transactions with low fees. Secure platform for buying, selling, and swapping CELO, XLM & more.",
+    images: [{ url: "/images/peerpesa-web3.png" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "Peerpesa Pay",
+    description:
+      "Send, Buy & Swap Celo (CELO) and Stellar (XLM) Instantly | Fast crypto transactions with low fees. Secure platform for buying, selling, and swapping CELO, XLM & more.",
+    images: ["/images/peerpesa-web3.png"],
   },
   other: {
     "talentapp:project_verification":
