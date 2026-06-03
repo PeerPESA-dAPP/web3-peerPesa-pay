@@ -4,36 +4,14 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { createPublicClient, http, formatUnits } from 'viem'
 import { celo, mainnet, polygon, arbitrum, optimism, base, bsc, avalanche } from 'viem/chains'
-import { 
+import {
   ConnectWallet,
   useAddress,
   useDisconnect,
   useChain,
   useSwitchChain,
   useConnectionStatus,
-  useTokenBalance,
   useBalance,
-  metamaskWallet,
-  coinbaseWallet,
-  walletConnect,
-  rainbowWallet,
-  trustWallet,
-  zerionWallet,
-  phantomWallet,
-  okxWallet,
-  rabbyWallet,
-  coin98Wallet,
-  coreWallet,
-  cryptoDefiWallet,
-  safeWallet,
-  oneKeyWallet,
-  magicEdenWallet,
-  xdefiWallet,
-  embeddedWallet,
-  localWallet,
-  bloctoWallet,
-  frameWallet,
-  imTokenWallet,
 } from "@thirdweb-dev/react"
 import {
   StellarWalletsKit,
@@ -41,6 +19,10 @@ import {
   AlbedoModule,
   xBullModule,
   RabetModule,
+  LobstrModule,
+  HanaModule,
+  HotWalletModule,
+  KleverModule,
   WalletNetwork,
 } from "@creit.tech/stellar-wallets-kit"
 import { WalletConnectModule, WalletConnectAllowedMethods } from "@creit.tech/stellar-wallets-kit/modules/walletconnect.module"
@@ -142,13 +124,6 @@ interface ActivityFetchResult {
   mode: "stellar" | "evm-explorer" | "evm-rpc"
 }
 
-// Built once at module level — avoids re-creation on every render
-const _otherWalletsConfig = (() => {
-  const wc = walletConnect()
-  wc.meta = { ...wc.meta, name: 'Other Wallets' }
-  return wc
-})()
-
 export function ThirdwebWalletInterface() {
   const searchParams = useSearchParams()
   const hasActiveNotifications = useHasActiveNotifications()
@@ -199,13 +174,11 @@ export function ThirdwebWalletInterface() {
 
 
   // Use standalone currency hook
-  const { 
-    selectedCurrency,   
-    setSelectedCurrency, 
-    getCurrentCurrency, 
+  const {
+    selectedCurrency,
+    setSelectedCurrency,
     exchangeRates,
     generalExchangeRates,
-    convertAmount,
     currencies,
     loading: currencyLoading,
     error: currencyError,
@@ -217,14 +190,12 @@ export function ThirdwebWalletInterface() {
   const [showTerms, setShowTerms] = useState(false)
   const [showPrivacy, setShowPrivacy] = useState(false)
   const [notificationLimit, setNotificationLimit] = useState(8)
-  const [activeFormService, setActiveFormService] = useState("send")
   const [transactionType, setTransactionType] = useState<"send" | "buy" | "swap">("send")
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
 
   const [usdValue, setUsdValue] = useState(0.00)
   const [totalBalanceValue, setTotalBalanceValue] = useState(0.00)
-  const [currencyFetching, setCurrencyFetching] = useState(false)
 
   // Supported tokens state
   const [supportedTokens, setSupportedTokens] = useState<any[]>([])
@@ -246,9 +217,7 @@ export function ThirdwebWalletInterface() {
   const [txTabVisible, setTxTabVisible] = useState(5)
 
   // Wallet asset management
-  const [walletAssets, setWalletAssets] = useState<any[]>([])
   const [enabledAssets, setEnabledAssets] = useState<EnabledAsset[]>([])
-  const [assetLoading, setAssetLoading] = useState(false)
   const [walletActivity, setWalletActivity] = useState<WalletActivityItem[]>([])
   const [walletActivityLoading, setWalletActivityLoading] = useState(false)
   const [walletActivityLoadingMore, setWalletActivityLoadingMore] = useState(false)
@@ -257,7 +226,7 @@ export function ThirdwebWalletInterface() {
   const [walletActivityMode, setWalletActivityMode] = useState<"stellar" | "evm-explorer" | "evm-rpc" | null>(null)
   const [stellarActivityCursor, setStellarActivityCursor] = useState<string | null>(null)
   const [evmActivityPage, setEvmActivityPage] = useState(1)
-  const [evmRpcNextBlock, setEvmRpcNextBlock] = useState<number | null>(null)
+  const [, setEvmRpcNextBlock] = useState<number | null>(null)
 
 
   useEffect(() => {
@@ -285,7 +254,7 @@ export function ThirdwebWalletInterface() {
 
   // ERC-20 token balances: symbol -> balance number
   const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({})
-  const [tokenBalancesLoading, setTokenBalancesLoading] = useState(false)
+  const [, setTokenBalancesLoading] = useState(false)
 
 
   // ERC-20 balanceOf ABI fragment
@@ -548,180 +517,6 @@ export function ThirdwebWalletInterface() {
     }))
   }, [walletType, stellarBalance, usdcStellarBalance])
 
-  // Function to check if wallet is available
-  const isWalletAvailable = (walletName: string) => {
-    if (typeof window === 'undefined') return false
-    
-    const ethereum = (window as any).ethereum
-    if (!ethereum) return false
-    
-    switch (walletName.toLowerCase()) {
-      case 'metamask':
-        // Check for MetaMask specifically
-        return ethereum.isMetaMask && !ethereum.isBraveWallet && !ethereum.isCoinbaseWallet
-      case 'coinbase':
-        return ethereum.isCoinbaseWallet
-      case 'rainbow':
-        return ethereum.isRainbow
-      case 'trust':
-        return ethereum.isTrust
-      default:
-        return true // For WalletConnect and others
-    }
-  }
-
-
-
-  // Function to connect to Albedo wallet using albedo-intent
-  const connecttoAlbedo = async () => {
-    try {
-      // Check if we're in browser environment
-      if (typeof window === 'undefined') {
-        toast({
-          title: "Environment Error",
-          description: "Wallet connection requires browser environment",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Show loading state
-      toast({
-        title: "Connecting...",
-        description: "Attempting to connect to Albedo wallet",
-        variant: "default",
-      })
-
-      // Check if Albedo is available in the browser
-      if (!(window as any).albedo) {
-        // If Albedo extension is not installed, use albedo-intent flow
-        const albedoUrl = 'https://albedo.link/intent/stellar-public-key'
-        const intentParams = {
-          message: 'Connect to PeerPesa Wallet',
-          pubkey: '',
-          callback: `${window.location.origin}/albedo-callback`,
-          signature: '',
-          callbackTemplate: '',
-          callbackMessage: '',
-          passphrase: '',
-          pubkeyOnly: true
-        }
-
-        // Prepare the intent URL with parameters
-        const intentUrl = `${albedoUrl}?${new URLSearchParams({
-          message: intentParams.message,
-          pubkeyOnly: 'true'
-        })}`
-
-        // Open Albedo Intent in new window
-        const intentWindow = window.open(
-          intentUrl,
-          'albedo-intent',
-          'width=600,height=700,scrollbars=yes,resizable=yes'
-        )
-
-        // Listen for the callback
-        const messageListener = (event: MessageEvent) => {
-          if (event.origin !== 'https://albedo.link') return
-
-          if (event.data.type === 'albedo-response') {
-            try {
-              const response = event.data.response
-              if (response && response.pubkey) {
-                // Set wallet data
-                setStellarAddress(response.pubkey)
-                setWalletType('stellar')
-                
-                // Fetch wallet balance
-                fetchStellarBalance(response.pubkey)
-                
-                // Store in localStorage for persistence
-                localStorage.setItem('peerpesa_wallet_type', 'stellar')
-                localStorage.setItem('peerpesa_stellar_address', response.pubkey)
-                
-                toast({
-                  title: "✅ Connected to Albedo",
-                  description: `Wallet address: ${response.pubkey.slice(0, 8)}...${response.pubkey.slice(-8)}`,
-                  variant: "default",
-                })
-                setShowWalletModal(false)
-              } else {
-                throw new Error('No public key received')
-              }
-            } catch (error) {
-              console.error("Albedo intent response error:", error)
-              toast({
-                title: "Connection Failed",
-                description: "Failed to process Albedo wallet response",
-                variant: "destructive",
-              })
-            } finally {
-              window.removeEventListener('message', messageListener)
-              if (intentWindow) intentWindow.close()
-            }
-          }
-        }
-
-        window.addEventListener('message', messageListener)
-
-        // Check if user closed the window without connecting
-        const checkClosed = setInterval(() => {
-          if (intentWindow?.closed) {
-            clearInterval(checkClosed)
-            window.removeEventListener('message', messageListener)
-            toast({
-              title: "Connection Cancelled",
-              description: "Albedo wallet connection was cancelled",
-              variant: "default",
-            })
-          }
-        }, 1000)
-
-      } else {
-        // Direct browser extension connection
-        const publicKey = await (window as any).albedo.publicKey({
-          path: "m/44'/148'/0'",
-          showSecret: false,
-        })
-        
-        if (publicKey && publicKey.pubkey) {
-          // Set wallet data
-          setStellarAddress(publicKey.pubkey)
-          setWalletType('stellar')
-          
-          // Fetch wallet balance
-          fetchStellarBalance(publicKey.pubkey)
-          
-          // Store in localStorage for persistence
-          localStorage.setItem('peerpesa_wallet_type', 'stellar')
-          localStorage.setItem('peerpesa_stellar_address', publicKey.pubkey)
-          
-          toast({
-            title: "✅ Connected to Albedo Extension",
-            description: `Wallet address: ${publicKey.pubkey.slice(0, 8)}...${publicKey.pubkey.slice(-8)}`,
-            variant: "default",
-          })
-          setShowWalletModal(false)
-        }
-      }
-
-    } catch (error) {
-      console.error("Albedo connection error:", error)
-      toast({
-        title: "Connection Failed",
-        description: `Failed to connect to Albedo wallet: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        variant: "destructive",
-      })
-      
-      // Reset wallet state on failure
-      setWalletType(null)
-      setStellarAddress(null)
-    }
-  }
-
-
-
-
   // Function to fetch Stellar wallet balance
   const fetchStellarBalance = async (address: string) => {
     try {
@@ -769,74 +564,6 @@ export function ThirdwebWalletInterface() {
     return 'Ethereum' // Default
   }
 
-  // Function to filter assets by current network
-  const getAssetsForCurrentNetwork = (): EnabledAsset[] => {
-    const currentNetwork = getCurrentNetwork()
-    return enabledAssets.filter(asset => asset.network === currentNetwork)
-  }
-
-  // Function to get Native assets for current network
-  const getNativeAssetsForCurrentNetwork = (): EnabledAsset[] => {
-    const currentNetwork = getCurrentNetwork()
-    return enabledAssets.filter(asset => 
-      asset.network === currentNetwork && 
-      asset.type === 'native' && 
-      asset.isEnabled
-    )
-  }
-
-  // Function to check if wallet has specific Native currency from API
-  const checkWalletNativeCurrency = (symbol: string): boolean => {
-    return hasNativeAsset(walletAssets, symbol)
-  }
-
-  // Function to check multiple Native currencies from API currencies
-  const checkNativeCurrenciesFromApiData = (): Record<string, boolean> => {
-    if (!currencies || currencies.length === 0) return {}
-    
-    // Check if currencies are in API format
-    const hasApiFormat = currencies.some(currency => 'isActive' in currency)
-    
-    if (hasApiFormat) {
-      const apiCurrencies = currencies.filter(currency => 'isActive' in currency) as unknown as CurrencyFromAPI[]
-      return checkNativeCurrenciesFromApi(walletAssets, apiCurrencies)
-    }
-    
-    // For CurrencyContext format, just check symbols
-    const result: Record<string, boolean> = {}
-    currencies.forEach(currency => {
-      if ('status' in currency && currency.status === "active") {
-        result[currency.symbol] = hasNativeAsset(walletAssets, currency.symbol)
-      }
-    })
-    
-    return result
-  }
-
-  // Function to get Native assets that are enabled from API
-  const getEnabledNativeAssetsFromApi = (): EnabledAsset[] => {
-    if (!currencies || currencies.length === 0) return []
-
-    // Check if currencies are in API format
-    const hasApiFormat = currencies.some(currency => 'isActive' in currency)
-
-    if (hasApiFormat) {
-      const apiCurrencies = currencies.filter(currency => 'isActive' in currency) as unknown as CurrencyFromAPI[]
-      return getNativeAssetsFromApi(apiCurrencies)
-    }
-    
-    // For CurrencyContext format, return all enabled assets as native
-    return enabledAssets.filter(asset => asset.isEnabled)
-  }
-
-  // Function to check if wallet has any of the enabled Native currencies
-  const getWalletEnabledNativeAssetsData = (): WalletAsset[] => {
-
-    return getWalletEnabledNativeAssets(walletAssets, enabledAssets)
-  }
-
-
-
   // Function to disconnect from Stellar wallet
   const disconnectStellarWallet = () => {
     setStellarAddress(null)
@@ -866,6 +593,10 @@ export function ThirdwebWalletInterface() {
             new AlbedoModule(),
             new xBullModule(),
             new RabetModule(),
+            new LobstrModule(),
+            new HanaModule(),
+            new HotWalletModule(),
+            new KleverModule(),
           ]
           if (wcProjectId) {
             modules.push(
@@ -1186,38 +917,6 @@ export function ThirdwebWalletInterface() {
   ])
 
 
-  const getTransactionIcon = (type: string) => {
-    const iconClass = "h-4 w-4"
-    switch (type) {
-      case "buy":
-        return (
-          <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
-            <ArrowUpIcon className={iconClass + " text-green-600"} />
-          </div>
-        )
-      case "sell":
-        return (
-          <div className="h-8 w-8 bg-red-100 rounded-full flex items-center justify-center">
-            <ArrowDownIcon className={iconClass + " text-red-600"} />
-          </div>
-        )
-      case "receive":
-        return (
-          <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-            <ArrowDownIcon className={iconClass + " text-blue-600"} />
-          </div>
-        )
-      case "send":
-        return (
-          <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
-            <ArrowUpIcon className={iconClass + " text-orange-600"} />
-          </div>
-        )
-      default:
-        return null
-    }
-  }
-
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
@@ -1229,17 +928,6 @@ export function ThirdwebWalletInterface() {
       default:
         return null
     }
-  }
-
-  const formatHash = (hash: string) => {
-    if (!hash) return "-"
-    return `${hash.slice(0, 8)}...${hash.slice(-6)}`
-  }
-
-  const resolveRpcUrl = (rawUrl?: string) => {
-    if (!rawUrl) return null
-    const clientId = process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID || ""
-    return rawUrl.replace(/\$\{THIRDWEB_API_KEY\}|\{THIRDWEB_API_KEY\}/g, clientId)
   }
 
   const fetchStellarActivity = async (walletAddress: string, cursor?: string | null): Promise<ActivityFetchResult> => {
@@ -1523,18 +1211,6 @@ export function ThirdwebWalletInterface() {
       loadInitialWalletActivity()
     }
   }, [activeTab, showNotifications, walletType, stellarAddress, isConnected, address, chain?.chainId])
-
-  const totalSentActivity = walletActivity
-    .filter((item) => item.direction === "out")
-    .reduce((sum, item) => sum + item.amount, 0)
-
-  const totalReceivedActivity = walletActivity
-    .filter((item) => item.direction === "in")
-    .reduce((sum, item) => sum + item.amount, 0)
-
-  const averageActivity = walletActivity.length > 0
-    ? walletActivity.reduce((sum, item) => sum + item.amount, 0) / walletActivity.length
-    : 0
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -2615,7 +2291,7 @@ export function ThirdwebWalletInterface() {
             <WalletNotifications />
 
             {/* Recent Transactions section - hidden when notifications are active */}
-            {!hasActiveNotifications && '1' === '0' && (
+            {false && !hasActiveNotifications && (
             <div>
               <div className="px-0 py-2">
                 <h3 className="text-md font-bold text-gray-500 mb-1">Recent Transactions</h3>
@@ -2840,9 +2516,13 @@ export function ThirdwebWalletInterface() {
                     <div className="absolute inset-0 opacity-0">
                       <ConnectWallet
                         theme="light"
-                        modalSize="compact"
+                        modalSize="wide"
+                        welcomeScreen={{
+                          title: "Connect to PeerPesa",
+                          subtitle: "Your gateway to the decentralized web",
+                        }}
+                        modalTitleIconUrl="/images/peerpesa-logo.png"
                         btnTitle="Connect"
-                        supportedWallets={[_otherWalletsConfig]}
                         style={{ width: '100%', height: '100%', display: 'block' }}
                       />
                     </div>

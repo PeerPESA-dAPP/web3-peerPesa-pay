@@ -28,6 +28,8 @@ function loadNotifications(): NotificationRecord[] {
   }
 }
 
+
+
 function saveNotifications(records: NotificationRecord[]) {
   if (typeof window === "undefined") return
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records.slice(0, MAX_NOTIFICATIONS)))

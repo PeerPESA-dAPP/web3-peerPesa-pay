@@ -1,16 +1,17 @@
-name: CI/CD Pipeline
+name: Peerpesa Pay
 
 on:
   push:
     branches:
-      - main # Trigger on pushes to the main branch
+      - main
+      - dev
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Log in to Docker Hub
@@ -24,18 +25,73 @@ jobs:
         with:
           context: .
           push: true
-          tags: your-dockerhub-username/your-nextjs-app:latest
-          build-args: |
-            NEXT_PUBLIC_CMS_URL=${{ secrets.NEXT_PUBLIC_CMS_URL }}
+          tags: ${{ secrets.DOCKER_USERNAME }}/peerpesa-pay:${{ github.ref_name == 'main' && 'latest' || 'dev' }}
 
-      - name: "Deploy to Server via SSH"
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            docker pull your-dockerhub-username/your-nextjs-app:latest
-            docker stop your-nextjs-app || true
-            docker rm your-nextjs-app || true
-            docker run -d --name your-nextjs-app -p 3000:3000 your-dockerhub-username/your-nextjs-app:latest
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to DEV
+        if: github.ref_name == 'dev'
+        env:
+          REMOTE_HOST: ${{ secrets.SERVER_IP }}
+          REMOTE_USER: ${{ secrets.SERVER_USER }}
+          REMOTE_PORT: ${{ secrets.SERVER_PORT }}
+          APP_NAME: peerpesa-pay-dev
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/peerpesa-pay:dev
+          ENV_FILE_PATH: ${{ secrets.DEV_ENV_APP_PATH }}
+          APP_PORT: ${{ secrets.DEV_APP_PORT }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST << EOF
+            echo '=== Pulling latest DEV image ==='
+            docker pull $IMAGE
+
+            echo '=== Stopping existing DEV container ==='
+            docker stop $APP_NAME 2>/dev/null || true
+            docker rm $APP_NAME 2>/dev/null || true
+
+            echo '=== Starting DEV container ==='
+            docker run -d \
+              --name $APP_NAME \
+              --restart unless-stopped \
+              --env-file $ENV_FILE_PATH \
+              -p $APP_PORT:3000 \
+              $IMAGE
+
+            echo '=== DEV deployment complete ==='
+            docker ps | grep $APP_NAME
+          EOF
+
+      - name: Deploy to Production
+        if: github.ref_name == 'main'
+        env:
+          REMOTE_HOST: ${{ secrets.SERVER_IP }}
+          REMOTE_USER: ${{ secrets.SERVER_USER }}
+          REMOTE_PORT: ${{ secrets.SERVER_PORT }}
+          APP_NAME: peerpesa-pay
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/peerpesa-pay:latest
+          ENV_FILE_PATH: ${{ secrets.ENV_APP_PATH }}
+          APP_PORT: ${{ secrets.APP_PORT }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST << EOF
+            echo '=== Pulling latest Production image ==='
+            docker pull $IMAGE
+
+            echo '=== Stopping existing Production container ==='
+            docker stop $APP_NAME 2>/dev/null || true
+            docker rm $APP_NAME 2>/dev/null || true
+
+            echo '=== Starting Production container ==='
+            docker run -d \
+              --name $APP_NAME \
+              --restart unless-stopped \
+              --env-file $ENV_FILE_PATH \
+              -p $APP_PORT:3000 \
+              $IMAGE
+
+            echo '=== Production deployment complete ==='
+            docker ps | grep $APP_NAME
+          EOF

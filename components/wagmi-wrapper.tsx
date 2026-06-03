@@ -9,6 +9,8 @@ interface WagmiWrapperProps {
   children: ReactNode
 }
 
+
+
 export function WagmiWrapper({ children }: WagmiWrapperProps) {
   const [queryClient] = useState(() => new QueryClient())
 
