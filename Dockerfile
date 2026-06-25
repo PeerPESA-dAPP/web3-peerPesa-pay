@@ -1,22 +1,18 @@
 # ===== Build Stage =====
-FROM node:20 AS build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
 
-# system deps for native modules
-RUN apt-get update && apt-get install -y \
+# System deps for node-gyp and native modules
+RUN apk add --no-cache \
     python3 \
     make \
     g++ \
-    libudev-dev \
-    libusb-1.0-0-dev \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*    
-
-# Install system dependencies for node-gyp
-RUN apk add --no-cache \
-    linux-headers    
+    eudev-dev \
+    libusb-dev \
+    pkgconf \
+    linux-headers
 
 # Install dependencies
 COPY pay/package*.json ./
