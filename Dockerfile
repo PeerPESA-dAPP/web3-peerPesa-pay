@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY pay/package*.json ./
-RUN npm install
+RUN npm ci
 
 # Copy source
 COPY pay/ .
