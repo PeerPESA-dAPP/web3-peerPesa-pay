@@ -4,7 +4,7 @@
 
 ---
 
-## 🚀 Why peerPesa?
+##  Why peerPesa?
 
 - 🌍 **Borderless Payments**: Facilitate seamless transfers across regions by bridging fiat (mobile money) with crypto.
 - 🔐 **Secure & Decentralized**: Leveraging blockchain smart contracts for trustless value exchange.
@@ -12,6 +12,8 @@
 - 🎓 **Built-in Gamification**: Encourage saving and spending through task-reward mechanisms suitable for families or educational contexts.
 
 ---
+
+
 
 ## 🧭 Repository Structure
 

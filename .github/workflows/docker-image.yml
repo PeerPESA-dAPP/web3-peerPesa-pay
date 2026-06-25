@@ -52,7 +52,7 @@ jobs:
             echo "🧹 Cleaning old images..."
             docker image prune -f
 
-            echo "✅ Deployment completed!"
+            echo " Deployment completed!"
 
             echo "=== Container Status ==="
             docker compose ps pay
