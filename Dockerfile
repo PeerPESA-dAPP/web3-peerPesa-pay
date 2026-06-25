@@ -3,6 +3,14 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Install system dependencies for node-gyp
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    linux-headers
+
+    
 # Install dependencies
 COPY pay/package*.json ./
 RUN npm install
