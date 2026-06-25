@@ -47,14 +47,14 @@ jobs:
             cd $DEPLOY_ROOT
             
             echo "Rebuilding app container..."
-            echo "🏗️ Rebuilding ONLY the pay service (no other services)..."
-            docker compose build --no-cache pay # ← Changed to build only
+            echo "Rebuilding ONLY the pay service (no other services)..."
+            docker compose up -d --build pay  # ← Changed to build only
             docker compose up -d --force-recreate pay
 
-            echo "🧹 Cleaning old images..."
+            echo "Cleaning old images..."
             docker image prune -f
 
-            echo " Deployment completed!"
+            echo "Deployment completed!"
 
             echo "=== Container Status ==="
             docker compose ps pay
