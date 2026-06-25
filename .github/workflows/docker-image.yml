@@ -16,8 +16,10 @@ jobs:
 
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1.2.0
+        timeout-minutes: 60
         with:
           host: ${{ secrets.DEPLOY_HOST_WEB2 }}
+          command_timeout: 60m
           username: ${{ secrets.DEPLOY_USER_WEB2 }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.DEPLOY_PORT_WEB2 }}
