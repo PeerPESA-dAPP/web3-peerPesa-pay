@@ -1,4 +1,4 @@
-name: Peerpesa Pay
+name: Deploy React App
 
 on:
   push:
@@ -7,91 +7,51 @@ on:
       - dev
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.2.0
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          host: ${{ secrets.DEPLOY_HOST_WEB2 }}
+          username: ${{ secrets.DEPLOY_USER_WEB2 }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.DEPLOY_PORT_WEB2 }}
+          script: |
+            echo "Starting deployment..."
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/peerpesa-pay:${{ github.ref_name == 'main' && 'latest' || 'dev' }}
+            # Paths from secrets
+            DEPLOY_ROOT=${{ secrets.DEPLOY_ROOT_PATH }}      # e.g. /var/apps
+            APP_PATH=${{ secrets.APP_WEB_PATH_WEB2_PRODUCTION }}  # e.g. /var/apps/pay
 
-      - name: Setup SSH Key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+            echo "Deploy Root : $DEPLOY_ROOT"
+            echo "App Path    : $APP_PATH"
 
-      - name: Deploy to DEV
-        if: github.ref_name == 'dev'
-        env:
-          REMOTE_HOST: ${{ secrets.SERVER_IP }}
-          REMOTE_USER: ${{ secrets.SERVER_USER }}
-          REMOTE_PORT: ${{ secrets.SERVER_PORT }}
-          APP_NAME: peerpesa-pay-dev
-          IMAGE: ${{ secrets.DOCKER_USERNAME }}/peerpesa-pay:dev
-          ENV_FILE_PATH: ${{ secrets.DEV_ENV_APP_PATH }}
-          APP_PORT: ${{ secrets.DEV_APP_PORT }}
-        run: |
-          ssh -i ~/.ssh/deploy_key -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST << EOF
-            echo '=== Pulling latest DEV image ==='
-            docker pull $IMAGE
+            echo "Making directories writable..."
+            chmod -R u+w $DEPLOY_ROOT
+            chmod -R u+w $APP_PATH
 
-            echo '=== Stopping existing DEV container ==='
-            docker stop $APP_NAME 2>/dev/null || true
-            docker rm $APP_NAME 2>/dev/null || true
+            # Pull latest code into app folder
+            cd $APP_PATH
 
-            echo '=== Starting DEV container ==='
-            docker run -d \
-              --name $APP_NAME \
-              --restart unless-stopped \
-              --env-file $ENV_FILE_PATH \
-              -p $APP_PORT:3000 \
-              $IMAGE
+            echo "Pulling latest changes..."
+            git fetch origin ${{ github.ref_name }}
+            git clean -fd
+            git reset --hard origin/${{ github.ref_name }}
 
-            echo '=== DEV deployment complete ==='
-            docker ps | grep $APP_NAME
-          EOF
+            echo "Rebuilding app container..."
+            docker rm -f pay || true
+            docker build -t pay .
+            docker run -d --name pay -p 3002:3002 pay
 
-      - name: Deploy to Production
-        if: github.ref_name == 'main'
-        env:
-          REMOTE_HOST: ${{ secrets.SERVER_IP }}
-          REMOTE_USER: ${{ secrets.SERVER_USER }}
-          REMOTE_PORT: ${{ secrets.SERVER_PORT }}
-          APP_NAME: peerpesa-pay
-          IMAGE: ${{ secrets.DOCKER_USERNAME }}/peerpesa-pay:latest
-          ENV_FILE_PATH: ${{ secrets.ENV_APP_PATH }}
-          APP_PORT: ${{ secrets.APP_PORT }}
-        run: |
-          ssh -i ~/.ssh/deploy_key -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST << EOF
-            echo '=== Pulling latest Production image ==='
-            docker pull $IMAGE
+            echo "Cleaning old images..."
+            docker image prune -f
 
-            echo '=== Stopping existing Production container ==='
-            docker stop $APP_NAME 2>/dev/null || true
-            docker rm $APP_NAME 2>/dev/null || true
+            echo "Deployment completed!"
 
-            echo '=== Starting Production container ==='
-            docker run -d \
-              --name $APP_NAME \
-              --restart unless-stopped \
-              --env-file $ENV_FILE_PATH \
-              -p $APP_PORT:3000 \
-              $IMAGE
-
-            echo '=== Production deployment complete ==='
-            docker ps | grep $APP_NAME
-          EOF
+            echo "=== Container Status ==="
+            docker ps --filter "name=pay"
