@@ -3,6 +3,8 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+
+# System deps for node-gyp and native modules
 RUN apk add --no-cache \
     python3 \
     make \
@@ -12,18 +14,22 @@ RUN apk add --no-cache \
     pkgconf \
     linux-headers
 
+# Install dependencies
 COPY pay/package*.json ./
+RUN npm install
 
-# Faster and reproducible
-RUN npm ci
-
+# Copy source
 COPY pay/ .
+
+# Load environment variables for Next.js build
 COPY config/pay.env .env
 
-# Increase Node memory for Next build
-ENV NODE_OPTIONS="--max_old_space_size=4096"
+# Build Next.js app (standalone output)
+# clear
+# RUN npm run build
+RUN npm ci
 
-RUN npm run build
+
 
 # ===== Production Stage =====
 FROM node:20-alpine AS runner
@@ -31,13 +37,28 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3002
-ENV HOSTNAME=0.0.0.0
 
+
+# System deps for node-gyp and native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    eudev-dev \
+    libusb-dev \
+    pkgconf \
+    linux-headers
+
+# Copy standalone server output
 COPY --from=build /app/.next/standalone ./
+
+# Copy static assets
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 
 EXPOSE 3002
+
+ENV PORT=3002
+ENV HOSTNAME="0.0.0.0"
 
 CMD ["node", "server.js"]
