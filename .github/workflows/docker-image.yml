@@ -35,15 +35,14 @@ jobs:
             chmod -R u+w $DEPLOY_ROOT
             chmod -R u+w $APP_PATH
 
-            # Pull latest code into app folder
-            cd $APP_PATH
-
             echo "Pulling latest changes..."
+            cd $APP_PATH
             git fetch origin ${{ github.ref_name }}
             git clean -fd
             git reset --hard origin/${{ github.ref_name }}
 
             echo "Rebuilding app container..."
+            cd $DEPLOY_ROOT
             docker rm -f pay || true
             docker build -t pay .
             docker run -d --name pay -p 3002:3002 pay
