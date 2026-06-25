@@ -1,4 +1,4 @@
-# peerPesa Web3 dApp
+# peerPesa Web3 dApp V2.0.2
 
 **peerPesa Web3** is a decentralized, cross-border payments application powered by blockchain and designed to connect **mobile money systems** (like M-Pesa, MTN MoMo) with **crypto networks** (e.g. Stellar, Celo, Ethereum). It allows users to securely **send**, **receive**, and **manage value** across borders with transparency and minimal friction.
 

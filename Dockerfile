@@ -1,43 +1,39 @@
-# Step 1: Build stage
-FROM node:current-alpine AS builder
-
-# Install build tools, linux headers, and libudev development package
-RUN apk add --no-cache python3 make g++ bash linux-headers eudev-dev
+# ===== Build Stage =====
+FROM node:20-alpine AS build
 
 WORKDIR /app
-
-# Copy package files and install dependencies
-COPY package*.json ./
-
-# Silence npm audit/funding/deprecation warnings
-RUN npm config set loglevel=error && \
-    npm config set fund false && \
-    npm config set audit false
 
 # Install dependencies
-RUN npm install --legacy-peer-deps
+COPY pay/package*.json ./
+RUN npm install
+
+# Copy source
+COPY pay/ .
+
+# Load environment variables for Next.js build
+COPY config/pay.env .env
+
+# Build Next.js app (standalone output)
+RUN npm run build
 
 
-# Copy the rest of the app
-COPY . .
-
-# Delete any existing .next folder before rebuilding
-RUN rm -rf .next
-
-# Build the app (Next.js or any Node build process)
-# RUN npm run build
-# RUN NODE_OPTIONS="--max-old-space-size=1024" npm run build
-RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
-
-# Step 2: Run stage
-FROM node:current-alpine AS runner
+# ===== Production Stage =====
+FROM node:20-alpine AS runner
 
 WORKDIR /app
+
 ENV NODE_ENV=production
 
-# Copy built app from builder
-COPY --from=builder /app ./
+# Copy standalone server output
+COPY --from=build /app/.next/standalone ./
 
-EXPOSE 3008
+# Copy static assets
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/public ./public
 
-CMD ["npm", "start"]
+EXPOSE 3002
+
+ENV PORT=3002
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]
