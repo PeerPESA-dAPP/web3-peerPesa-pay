@@ -3,14 +3,21 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Install system dependencies for node-gyp
-RUN apk add --no-cache \
+
+# system deps for native modules
+RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
-    linux-headers
+    libudev-dev \
+    libusb-1.0-0-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*    
 
-    
+# Install system dependencies for node-gyp
+RUN apk add --no-cache \
+    linux-headers    
+
 # Install dependencies
 COPY pay/package*.json ./
 RUN npm install
