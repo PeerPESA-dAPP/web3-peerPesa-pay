@@ -5,7 +5,6 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-
 # System deps for node-gyp and native modules
 # RUN apk add --no-cache \
 #     python3 \
@@ -18,15 +17,15 @@ WORKDIR /app
 
 # Install dependencies (npm ci for reproducible, lockfile-exact installs;
 # cache mount keeps npm's download cache across builds without bloating the image)
-COPY app/package*.json ./
+COPY pay/package*.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 
 # Copy source
-COPY app/ .
+COPY pay/ .
 
 # Load environment variables for Next.js build
-COPY config/app.env .env
+COPY config/pay.env .env
 
 # Build Next.js app (standalone output)
 RUN npm run build
