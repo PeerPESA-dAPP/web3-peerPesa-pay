@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TransactionForms } from "./transaction-forms"
+import { ActivityProvider, useActivity } from "@/contexts/ActivityContext"
+import { WalletActivityList } from "./wallet-activity-list"
 import { EthereumProvider } from "@walletconnect/ethereum-provider"
 import { WalletConnectModal } from "@walletconnect/modal"
 import { WALLETCONNECT_CONFIG, STELLAR_CONFIG } from "@/lib/walletconnect-config"
@@ -90,6 +92,16 @@ const mockTransactions: Transaction[] = [
 ]
 
 export function WalletInterface() {
+  const [_walletAddress, _setWalletAddress] = useState("")
+  return (
+    <ActivityProvider walletAddress={_walletAddress}>
+      <WalletInterfaceInner onAddressChange={_setWalletAddress} />
+    </ActivityProvider>
+  )
+}
+
+function WalletInterfaceInner({ onAddressChange }: { onAddressChange: (addr: string) => void }) {
+  const { addActivity } = useActivity()
   const [activeTab, setActiveTab] = useState("overview")
   const [buyAmount, setBuyAmount] = useState("")
   const [sellAmount, setSellAmount] = useState("")
@@ -97,8 +109,13 @@ export function WalletInterface() {
   const [selectedCurrency, setSelectedCurrency] = useState("USD")
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
-  const [walletAddress, setWalletAddress] = useState("")
+  const [walletAddress, setWalletAddressState] = useState("")
   const [walletType, setWalletType] = useState("")
+
+  const setWalletAddress = (addr: string) => {
+    setWalletAddressState(addr)
+    onAddressChange(addr)
+  }
   const [showTransactionForms, setShowTransactionForms] = useState(false)
   const [walletConnectProvider, setWalletConnectProvider] = useState<any>(null)
   const [currentNetwork, setCurrentNetwork] = useState("ethereum")
@@ -227,25 +244,51 @@ export function WalletInterface() {
   // Sync Wagmi state with component state
   useEffect(() => {
     if (isConnected && address) {
+      const wasConnected = isWalletConnected
       setIsWalletConnected(true)
       setWalletAddress(address)
       setWalletType("Wagmi")
       setAvailableAccounts([address])
       setSelectedAccountIndex(0)
+      if (!wasConnected) {
+        addActivity({
+          type: 'connect',
+          description: `Wallet connected`,
+          network: chain?.name,
+          status: 'completed',
+        })
+      }
     } else {
+      if (isWalletConnected) {
+        addActivity({
+          type: 'disconnect',
+          description: 'Wallet disconnected',
+          status: 'completed',
+        })
+      }
       setIsWalletConnected(false)
       setWalletAddress("")
       setWalletType("")
       setAvailableAccounts([])
       setSelectedAccountIndex(0)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, address])
 
   // Update current network when chain changes
   useEffect(() => {
     if (chain) {
+      if (currentNetwork && currentNetwork !== chain.name) {
+        addActivity({
+          type: 'network_switch',
+          description: `Switched to ${chain.name}`,
+          network: chain.name,
+          status: 'completed',
+        })
+      }
       setCurrentNetwork(chain.name)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chain])
 
   // Update wallet type when MiniPay is detected
@@ -889,12 +932,17 @@ export function WalletInterface() {
 
   const switchAccount = (accountIndex: number) => {
     if (accountIndex >= 0 && accountIndex < availableAccounts.length) {
+      const addr = availableAccounts[accountIndex]
       setSelectedAccountIndex(accountIndex)
-      setWalletAddress(availableAccounts[accountIndex])
-      
+      setWalletAddress(addr)
+      addActivity({
+        type: 'account_switch',
+        description: `Switched to ${addr.slice(0, 6)}...${addr.slice(-4)}`,
+        status: 'completed',
+      })
       toast({
         title: "Account Switched",
-        description: `Switched to ${availableAccounts[accountIndex].slice(0, 6)}...${availableAccounts[accountIndex].slice(-4)}`,
+        description: `Switched to ${addr.slice(0, 6)}...${addr.slice(-4)}`,
         variant: "default",
       })
     }
@@ -1458,218 +1506,25 @@ export function WalletInterface() {
         </TabsContent>
 
         <TabsContent value="activity" className="mt-6">
-          <Card className="bg-white border-gray-200 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2 text-gray-900">
-                <WalletIcon className="h-5 w-5" />
-                Wallet Activity
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <LinkIcon className="h-4 w-4 text-green-500" />
-                    <div>
-                      <p className="font-medium text-gray-900">Wallet Connected</p>
-                      <p className="text-sm text-gray-600">
-                        {isWalletConnected && walletAddress
-                          ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
-                          : "Not connected"}
-                      </p>
-                    </div>
-                  </div>
-                  <Badge
-                    className={
-                      isWalletConnected
-                        ? "bg-green-50 text-green-700 border-green-200"
-                        : "bg-gray-50 text-gray-700 border-gray-200"
-                    }
-                  >
-                    {isWalletConnected ? "Active" : "Inactive"}
-                  </Badge>
-                </div>
-
-                {/* Account Selection */}
-                {isWalletConnected && availableAccounts.length > 1 && (
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <WalletIcon className="h-4 w-4 text-blue-500" />
-                        <div>
-                          <p className="font-medium text-gray-900">Account</p>
-                          <p className="text-sm text-gray-600">
-                            {availableAccounts.length} account{availableAccounts.length > 1 ? 's' : ''} available
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      {availableAccounts.map((account, index) => (
-                        <button
-                          key={account}
-                          onClick={() => switchAccount(index)}
-                          className={`w-full px-3 py-2 text-sm rounded-md border text-left ${
-                            index === selectedAccountIndex
-                              ? "bg-blue-50 text-blue-700 border-blue-200"
-                              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono">
-                              {account.slice(0, 6)}...{account.slice(-4)}
-                            </span>
-                            {index === selectedAccountIndex && (
-                              <span className="text-xs text-blue-600">Active</span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Network Selection */}
-                {isWalletConnected && (walletType === "MetaMask" || walletType === "WalletConnect") && (
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <GlobeIcon className="h-4 w-4 text-purple-500" />
-                        <div>
-                          <p className="font-medium text-gray-900">Network</p>
-                          <p className="text-sm text-gray-600">{currentNetwork}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => switchNetwork(1)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "Ethereum"
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        Ethereum
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(137)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "Polygon"
-                            ? "bg-purple-50 text-purple-700 border-purple-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        Polygon
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(42161)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "Arbitrum"
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        Arbitrum
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(10)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "OP Mainnet"
-                            ? "bg-red-50 text-red-700 border-red-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        OP Mainnet
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(8453)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "Base"
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        Base
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(56)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "BNB Smart Chain"
-                            ? "bg-yellow-50 text-yellow-700 border-yellow-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        BNB Chain
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(81457)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "Blast"
-                            ? "bg-orange-50 text-orange-700 border-orange-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        Blast
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(43114)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "Avalanche"
-                            ? "bg-red-50 text-red-700 border-red-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        Avalanche
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(42220)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "Celo"
-                            ? "bg-yellow-50 text-yellow-700 border-yellow-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        Celo
-                      </button>
-                      <button
-                        onClick={() => switchNetwork(324)}
-                        className={`px-3 py-2 text-xs rounded-md border ${
-                          currentNetwork === "zkSync Era"
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        zkSync Era
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <TrendingUpIcon className="h-4 w-4 text-blue-500" />
-                    <div>
-                      <p className="font-medium text-gray-900">Portfolio Performance</p>
-                      <p className="text-sm text-gray-600">+12.5% this month</p>
-                    </div>
-                  </div>
-                  <Badge className="bg-blue-50 text-blue-700 border-blue-200">Tracking</Badge>
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <RefreshCwIcon className="h-4 w-4 text-orange-500" />
-                    <div>
-                      <p className="font-medium text-gray-900">Auto-Sync</p>
-                      <p className="text-sm text-gray-600">Last synced 2 min ago</p>
-                    </div>
-                  </div>
-                  <Badge className="bg-orange-50 text-orange-700 border-orange-200">Enabled</Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <ActivityIcon className="h-5 w-5" />
+              Wallet Activity
+            </h3>
+            {isWalletConnected && walletAddress && (
+              <p className="text-xs text-gray-500">
+                {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+              </p>
+            )}
+          </div>
+          {isWalletConnected ? (
+            <WalletActivityList />
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <WalletIcon className="h-10 w-10 text-gray-200 mb-3" />
+              <p className="text-sm font-medium text-gray-600">Connect your wallet to see activity</p>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
