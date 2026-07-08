@@ -922,10 +922,10 @@ export function TransactionForms({  onBack,
             </Button>
           </div>
         ) : (!showReview && !(activeTab === "send" && sendStep > 1) && !(activeTab === "buy" && buyStep > 1) && !(activeTab === "swap" && swapStep > 1)) && (
-          <div className="grid grid-cols-3 gap-2 mb-1">
+          <div className="grid grid-cols-3 gap-3 mb-3">
             <Button
               variant={activeTab === "send" ? "default" : "outline"}
-              className={`h-9 flex flex-col items-center justify-center gap-1 cursor-pointer ${
+              className={`h-12 flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 activeTab === "send"
                   ? "bg-[#19B17A] hover:bg-[#158f68] text-white"
                   : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black"
@@ -939,7 +939,7 @@ export function TransactionForms({  onBack,
             </Button>
             <Button
               variant={activeTab === "buy" ? "default" : "outline"}
-              className={`h-9 flex flex-col items-center justify-center gap-1 cursor-pointer ${
+              className={`h-12 flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 activeTab === "buy"
                   ? "bg-[#19B17A] hover:bg-[#158f68] text-white"
                   : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black"
@@ -953,7 +953,7 @@ export function TransactionForms({  onBack,
             </Button>
             <Button
               variant={activeTab === "swap" ? "default" : "outline"}
-              className={`h-9 flex flex-col items-center justify-center gap-1 cursor-pointer ${
+              className={`h-12 flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 activeTab === "swap"
                   ? "bg-[#19B17A] hover:bg-[#158f68] text-white"
                   : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black"
@@ -1122,9 +1122,10 @@ export function TransactionForms({  onBack,
 
                 if (sendStep !== 1) return null
                 return (
-                  <div className="space-y-2">
-                    {/* YOU SELL */}
-                    <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200">
+                  <div className="space-y-3">
+                    {/* YOU SELL + RATE + RECIPIENT GETS — combined card */}
+                    <div className="bg-gray-50 rounded-2xl border border-gray-200 overflow-hidden">
+                      <div className="p-3">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">You Sell</span>
                         <div className="flex items-center gap-2">
@@ -1133,17 +1134,17 @@ export function TransactionForms({  onBack,
                           </span>
                           <button
                             type="button"
-                            className="flex items-center gap-1 rounded-lg bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                            className="flex items-center gap-1 rounded-lg bg-[#6EBE44] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#63aa3d] active:bg-[#5a9836] transition-colors"
                             onClick={() => setSendAmount(sendBalance > 0 ? sendBalance.toString() : "")}
                           >
-                            <span className="rounded bg-white/20 px-1 py-0.5 text-[9px] font-bold tracking-wider">MAX</span>
+                            <span className="text-[9px] font-bold tracking-wider">MAX</span>
                           </button>
                         </div>
                       </div>
 
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
-                          <Input
+                          <input
                             type="number"
                             placeholder="0"
                             value={sendAmount}
@@ -1159,7 +1160,7 @@ export function TransactionForms({  onBack,
                                 setSendUsdDraft(usdVal > 0 ? usdVal.toFixed(2) : "")
                               }
                             }}
-                            className="text-3xl font-bold border-0 p-0 h-auto bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
+                            className="text-3xl font-bold text-gray-900 bg-transparent border-0 p-0 w-full focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           />
                           <div className="flex items-center gap-0.5 mt-0.5">
                             <span className="text-xs text-gray-400">≈ $</span>
@@ -1192,11 +1193,11 @@ export function TransactionForms({  onBack,
                           </div>
                         </div>
 
-                        {/* Token selector — floats right, max 40% */}
+                        {/* Token selector — compact by default, grows to fit content */}
                         <Select value={sendCurrency} onValueChange={setSendCurrency}>
-                          <SelectTrigger className="border border-gray-200 rounded-xl px-3 py-2.5 h-auto bg-white shadow-sm w-full max-w-[40%] ml-auto focus:ring-0 [&>svg]:hidden">
-                            <div className="flex items-center gap-2">
-                              <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                          <SelectTrigger className="border border-gray-200 rounded-xl px-2.5 py-1.5 h-auto bg-white shadow-sm w-fit max-w-[65%] min-w-[84px] ml-auto shrink-0 focus:ring-0 [&>svg]:hidden">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="relative w-6 h-6 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
                                 <span className="text-[9px] font-bold text-blue-600">{sendCurrency?.slice(0, 2) || "--"}</span>
                                 {(() => {
                                   const iconUrl = selectedSendAsset ? getCurrencyIconUrl(selectedSendAsset) : null
@@ -1205,13 +1206,13 @@ export function TransactionForms({  onBack,
                                   ) : null
                                 })()}
                               </div>
-                              <div className="flex flex-col items-start leading-tight">
-                                <span className="font-bold text-gray-900 text-sm">{sendCurrency || "Select"}</span>
+                              <div className="flex flex-col items-start leading-tight min-w-0">
+                                <span className="font-bold text-gray-900 text-sm truncate max-w-full">{sendCurrency || "Select"}</span>
                                 {sendAssetNetwork && (
-                                  <span className="text-[10px] text-gray-400 font-medium">{sendAssetNetwork}</span>
+                                  <span className="text-[10px] text-gray-400 font-medium truncate max-w-full">{sendAssetNetwork}</span>
                                 )}
                               </div>
-                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1" />
+                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1 shrink-0" />
                             </div>
                           </SelectTrigger>
                           <SelectContent className="bg-white max-h-[300px]">
@@ -1250,27 +1251,29 @@ export function TransactionForms({  onBack,
                           Insufficient balance. Available: {formatBalance(sendBalance)} {sendCurrency}
                         </p>
                       )}
-                    </div>
-
-                    {/* Exchange Rate Pill */}
-                    <div className="flex justify-center">
-                      <div className="flex items-center gap-2 bg-gray-100 rounded-full px-4 py-1.5 text-xs text-gray-600 font-medium">
-                        <RefreshCwIcon className={`h-3 w-3 text-[#19B17A] ${sendCoinRateLoading ? "animate-spin" : ""}`} />
-                        <span>
-                          {sendCoinRateLoading
-                            ? "Fetching rate…"
-                            : `1 ${sendCurrency || "--"} = ${sendToReceiveRate ? sendToReceiveRate.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "--"} ${receiveCurrency || "--"}`}
-                        </span>
-                        {!sendCoinRateLoading && (
-                          <span className="bg-[#19B17A] text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-1">
-                            {Math.floor(rateCountdown / 60)}:{String(rateCountdown % 60).padStart(2, "0")}
-                          </span>
-                        )}
                       </div>
-                    </div>
 
-                    {/* RECIPIENT GETS */}
-                    <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200">
+                      {/* Exchange rate divider */}
+                      <div className="relative flex items-center px-3">
+                        <div className="flex-1 border-t border-gray-200" />
+                        <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-3 py-1 mx-2 text-[11px] text-gray-600 font-medium shadow-sm shrink-0">
+                          <RefreshCwIcon className={`h-3 w-3 text-[#19B17A] ${sendCoinRateLoading ? "animate-spin" : ""}`} />
+                          <span>
+                            {sendCoinRateLoading
+                              ? "Fetching rate…"
+                              : `1 ${sendCurrency || "--"} = ${sendToReceiveRate ? sendToReceiveRate.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "--"} ${receiveCurrency || "--"}`}
+                          </span>
+                          {!sendCoinRateLoading && (
+                            <span className="bg-[#19B17A] text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold">
+                              {Math.floor(rateCountdown / 60)}:{String(rateCountdown % 60).padStart(2, "0")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 border-t border-gray-200" />
+                      </div>
+
+                      {/* RECIPIENT GETS */}
+                      <div className="p-3">
                       <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase block mb-2">Recipient Gets</span>
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
@@ -1311,45 +1314,43 @@ export function TransactionForms({  onBack,
                           )}
                         </div>
 
-                        {/* Fiat currency selector — floats right, max 40% */}
-                        <div className="flex flex-col items-end gap-1 w-full max-w-[40%] ml-auto shrink-0">
-                          <Select value={receiveCurrency} onValueChange={setReceiveCurrency}>
-                            <SelectTrigger className="border border-gray-200 rounded-xl px-3 py-2.5 h-auto bg-white shadow-sm w-full focus:ring-0 [&>svg]:hidden">
-                              <div className="flex items-center gap-2 w-full">
-                                <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                                  <span className="text-[9px] font-bold text-green-600">{receiveCurrency?.slice(0, 2) || "--"}</span>
-                                  {(() => {
-                                    const iconUrl = selectedReceiveAsset ? getCurrencyIconUrl(selectedReceiveAsset) : getCurrencyIconUrl({ symbol: receiveCurrency })
-                                    return iconUrl ? (
-                                      <img src={iconUrl} alt={receiveCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} />
-                                    ) : null
-                                  })()}
-                                </div>
-                                <span className="font-bold text-gray-900 text-sm truncate">{receiveCurrency || "Select"}</span>
-                                <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-auto shrink-0" />
+                        {/* Fiat currency selector — compact by default, grows to fit content */}
+                        <Select value={receiveCurrency} onValueChange={setReceiveCurrency}>
+                          <SelectTrigger className="border border-gray-200 rounded-xl px-2.5 py-1.5 h-auto bg-white shadow-sm w-fit max-w-[65%] min-w-[84px] ml-auto shrink-0 focus:ring-0 [&>svg]:hidden">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="relative w-6 h-6 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                <span className="text-[9px] font-bold text-green-600">{receiveCurrency?.slice(0, 2) || "--"}</span>
+                                {(() => {
+                                  const iconUrl = selectedReceiveAsset ? getCurrencyIconUrl(selectedReceiveAsset) : getCurrencyIconUrl({ symbol: receiveCurrency })
+                                  return iconUrl ? (
+                                    <img src={iconUrl} alt={receiveCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                  ) : null
+                                })()}
                               </div>
-                            </SelectTrigger>
-                            <SelectContent className="bg-white max-h-[300px]">
-                              {fiatCurrencies.length > 0 ? (
-                                fiatCurrencies.map((currency: any) => {
-                                  const iconUrl = getCurrencyIconUrl(currency)
-                                  return (
-                                    <SelectItem key={currency.symbol} value={currency.symbol} className="bg-white hover:bg-gray-50">
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                                          {iconUrl && <img src={iconUrl} alt={currency.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />}
-                                        </div>
-                                        <span className="text-sm font-medium">{currency.symbol}</span>
+                              <span className="font-bold text-gray-900 text-sm truncate max-w-full">{receiveCurrency || "Select"}</span>
+                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1 shrink-0" />
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent className="bg-white max-h-[300px]">
+                            {fiatCurrencies.length > 0 ? (
+                              fiatCurrencies.map((currency: any) => {
+                                const iconUrl = getCurrencyIconUrl(currency)
+                                return (
+                                  <SelectItem key={currency.symbol} value={currency.symbol} className="bg-white hover:bg-gray-50">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                        {iconUrl && <img src={iconUrl} alt={currency.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />}
                                       </div>
-                                    </SelectItem>
-                                  )
-                                })
-                              ) : (
-                                <div className="p-4 text-center text-sm text-gray-500">No currencies available</div>
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                                      <span className="text-sm font-medium">{currency.symbol}</span>
+                                    </div>
+                                  </SelectItem>
+                                )
+                              })
+                            ) : (
+                              <div className="p-4 text-center text-sm text-gray-500">No currencies available</div>
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       {hasBelowMinPayout && (
@@ -1357,6 +1358,7 @@ export function TransactionForms({  onBack,
                           Minimum payout is {sendMinPayout.toLocaleString()} {receiveCurrency}
                         </p>
                       )}
+                      </div>
                     </div>
 
                     {/* PAYMENT METHOD */}
@@ -1784,30 +1786,30 @@ export function TransactionForms({  onBack,
               {/* Buy Tab Content — Step 1 */}
               {activeTab === "buy" && buyStep === 1 && (
                 <div className="space-y-2">
-                  {/* YOU PAY — fiat (mirrors "Recipient Gets" selector from send) */}
-                  <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200">
-                    <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase block mb-2">You Pay</span>
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          value={sendAmount}
-                          onChange={(e) => setSendAmount(e.target.value)}
-                          className="text-3xl font-bold border-0 p-0 h-auto bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
-                        />
-                        {parsedSendAmount > 0 && receiveCurrency && (
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            {parsedSendAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} {receiveCurrency}
-                          </p>
-                        )}
-                      </div>
-                      {/* Fiat currency selector — exact copy from send "Recipient Gets" */}
-                      <div className="flex flex-col items-end gap-1 w-full max-w-[40%] ml-auto shrink-0">
+                  {/* YOU PAY + RATE + YOU RECEIVE — combined card */}
+                  <div className="bg-gray-50 rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="p-3">
+                      <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase block mb-2">You Pay</span>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={sendAmount}
+                            onChange={(e) => setSendAmount(e.target.value)}
+                            className="text-3xl font-bold text-gray-900 bg-transparent border-0 p-0 w-full focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          />
+                          {parsedSendAmount > 0 && receiveCurrency && (
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {parsedSendAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} {receiveCurrency}
+                            </p>
+                          )}
+                        </div>
+                        {/* Fiat currency selector — compact by default, grows to fit content */}
                         <Select value={receiveCurrency} onValueChange={setReceiveCurrency}>
-                          <SelectTrigger className="border border-gray-200 rounded-xl px-3 py-2.5 h-auto bg-white shadow-sm w-full focus:ring-0 [&>svg]:hidden">
-                            <div className="flex items-center gap-2 w-full">
-                              <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                          <SelectTrigger className="border border-gray-200 rounded-xl px-2.5 py-1.5 h-auto bg-white shadow-sm w-fit max-w-[65%] min-w-[84px] ml-auto shrink-0 focus:ring-0 [&>svg]:hidden">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="relative w-6 h-6 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
                                 <span className="text-[9px] font-bold text-green-600">{receiveCurrency?.slice(0, 2) || "--"}</span>
                                 {(() => {
                                   const selectedReceiveAsset = fiatCurrencies.find((c: any) => c.symbol === receiveCurrency)
@@ -1817,8 +1819,8 @@ export function TransactionForms({  onBack,
                                   ) : null
                                 })()}
                               </div>
-                              <span className="font-bold text-gray-900 text-sm truncate">{receiveCurrency || "Select"}</span>
-                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-auto shrink-0" />
+                              <span className="font-bold text-gray-900 text-sm truncate max-w-full">{receiveCurrency || "Select"}</span>
+                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1 shrink-0" />
                             </div>
                           </SelectTrigger>
                           <SelectContent className="bg-white max-h-[300px]">
@@ -1843,103 +1845,105 @@ export function TransactionForms({  onBack,
                         </Select>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Exchange Rate Pill */}
-                  <div className="flex justify-center">
-                    <div className="flex items-center gap-2 bg-gray-100 rounded-full px-4 py-1.5 text-xs text-gray-600 font-medium">
-                      <RefreshCwIcon className={`h-3 w-3 text-[#19B17A] ${sendCoinRateLoading ? "animate-spin" : ""}`} />
-                      <span>
-                        {sendCoinRateLoading
-                          ? "Fetching rate…"
-                          : `1 ${sendCurrency || "--"} = ${sendToReceiveRate ? sendToReceiveRate.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "--"} ${receiveCurrency || "--"}`}
-                      </span>
-                      {!sendCoinRateLoading && (
-                        <span className="bg-[#19B17A] text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-1">
-                          {Math.floor(rateCountdown / 60)}:{String(rateCountdown % 60).padStart(2, "0")}
+                    {/* Exchange rate divider */}
+                    <div className="relative flex items-center px-3">
+                      <div className="flex-1 border-t border-gray-200" />
+                      <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-3 py-1 mx-2 text-[11px] text-gray-600 font-medium shadow-sm shrink-0">
+                        <RefreshCwIcon className={`h-3 w-3 text-[#19B17A] ${sendCoinRateLoading ? "animate-spin" : ""}`} />
+                        <span>
+                          {sendCoinRateLoading
+                            ? "Fetching rate…"
+                            : `1 ${sendCurrency || "--"} = ${sendToReceiveRate ? sendToReceiveRate.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "--"} ${receiveCurrency || "--"}`}
                         </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* YOU RECEIVE — crypto (mirrors "You Sell" selector from send) */}
-                  <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">You Receive</span>
-                      <span className="text-[11px] text-gray-500 font-medium">
-                        {sendBalance > 0 ? `${formatBalance(sendBalance)} ${sendCurrency}` : `0 ${sendCurrency || ""}`}
-                      </span>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-3xl font-bold text-gray-900">
-                          {sendToReceiveRate && parsedSendAmount > 0
-                            ? (() => {
-                                const v = parsedSendAmount / sendToReceiveRate
-                                return v.toLocaleString(undefined, { maximumFractionDigits: v >= 1 ? 2 : 4 })
-                              })()
-                            : "0"}
-                        </p>
-                        <div className="flex items-center gap-0.5 mt-0.5">
-                          <span className="text-xs text-gray-400">≈ $</span>
-                          <span className="text-xs text-gray-400">
-                            {sendCoinUsd && parsedSendAmount > 0
-                              ? ((parsedSendAmount / (sendToReceiveRate || 1)) * sendCoinUsd).toFixed(2)
-                              : "0.00"}
+                        {!sendCoinRateLoading && (
+                          <span className="bg-[#19B17A] text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold">
+                            {Math.floor(rateCountdown / 60)}:{String(rateCountdown % 60).padStart(2, "0")}
                           </span>
-                        </div>
+                        )}
                       </div>
-                      {/* Crypto selector — exact copy from send "You Sell" */}
-                      <Select value={sendCurrency} onValueChange={setSendCurrency}>
-                        <SelectTrigger className="border border-gray-200 rounded-xl px-3 py-2.5 h-auto bg-white shadow-sm w-full max-w-[40%] ml-auto focus:ring-0 [&>svg]:hidden">
-                          <div className="flex items-center gap-2">
-                            <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                              <span className="text-[9px] font-bold text-blue-600">{sendCurrency?.slice(0, 2) || "--"}</span>
-                              {(() => {
-                                const iconUrl = selectedSendAsset ? getCurrencyIconUrl(selectedSendAsset) : null
-                                return iconUrl ? (
-                                  <img src={iconUrl} alt={sendCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} />
-                                ) : null
-                              })()}
-                            </div>
-                            <div className="flex flex-col items-start leading-tight">
-                              <span className="font-bold text-gray-900 text-sm">{sendCurrency || "Select"}</span>
-                              {walletNetwork && (
-                                <span className="text-[10px] text-gray-400 font-medium">{walletNetwork}</span>
-                              )}
-                            </div>
-                            <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1" />
+                      <div className="flex-1 border-t border-gray-200" />
+                    </div>
+
+                    {/* YOU RECEIVE */}
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">You Receive</span>
+                        <span className="text-[11px] text-gray-500 font-medium">
+                          {sendBalance > 0 ? `${formatBalance(sendBalance)} ${sendCurrency}` : `0 ${sendCurrency || ""}`}
+                        </span>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-3xl font-bold text-gray-900">
+                            {sendToReceiveRate && parsedSendAmount > 0
+                              ? (() => {
+                                  const v = parsedSendAmount / sendToReceiveRate
+                                  return v.toLocaleString(undefined, { maximumFractionDigits: v >= 1 ? 2 : 4 })
+                                })()
+                              : "0"}
+                          </p>
+                          <div className="flex items-center gap-0.5 mt-0.5">
+                            <span className="text-xs text-gray-400">≈ $</span>
+                            <span className="text-xs text-gray-400">
+                              {sendCoinUsd && parsedSendAmount > 0
+                                ? ((parsedSendAmount / (sendToReceiveRate || 1)) * sendCoinUsd).toFixed(2)
+                                : "0.00"}
+                            </span>
                           </div>
-                        </SelectTrigger>
-                        <SelectContent className="bg-white max-h-[300px]">
-                          {sendAssetsForWallet.length > 0 ? (
-                            sendAssetsForWallet.map((asset: any) => {
-                              const iconUrl = getCurrencyIconUrl(asset)
-                              const assetNets = getCoinNetworks(asset)
-                              const netLabel = walletNetwork || assetNets[0]?.label || assetNets[0]?.network || ""
-                              return (
-                                <SelectItem key={asset.symbol} value={asset.symbol} className="bg-white hover:bg-gray-50">
-                                  <div className="flex items-center gap-2 w-full">
-                                    <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                                      {iconUrl && <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-sm font-medium">{asset.symbol}</div>
-                                      {netLabel && <div className="text-[10px] text-gray-400">{netLabel}</div>}
-                                    </div>
-                                  </div>
-                                </SelectItem>
-                              )
-                            })
-                          ) : (
-                            <div className="p-4 text-center text-sm text-gray-500">
-                              {isWalletConnected
-                                ? `No supported tokens on ${walletNetwork || "this network"}`
-                                : "Connect a wallet to see supported tokens"}
+                        </div>
+                        {/* Crypto selector — compact by default, grows to fit content */}
+                        <Select value={sendCurrency} onValueChange={setSendCurrency}>
+                          <SelectTrigger className="border border-gray-200 rounded-xl px-2.5 py-1.5 h-auto bg-white shadow-sm w-fit max-w-[65%] min-w-[84px] ml-auto shrink-0 focus:ring-0 [&>svg]:hidden">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="relative w-6 h-6 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                <span className="text-[9px] font-bold text-blue-600">{sendCurrency?.slice(0, 2) || "--"}</span>
+                                {(() => {
+                                  const iconUrl = selectedSendAsset ? getCurrencyIconUrl(selectedSendAsset) : null
+                                  return iconUrl ? (
+                                    <img src={iconUrl} alt={sendCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} />
+                                  ) : null
+                                })()}
+                              </div>
+                              <div className="flex flex-col items-start leading-tight min-w-0">
+                                <span className="font-bold text-gray-900 text-sm truncate max-w-full">{sendCurrency || "Select"}</span>
+                                {walletNetwork && (
+                                  <span className="text-[10px] text-gray-400 font-medium truncate max-w-full">{walletNetwork}</span>
+                                )}
+                              </div>
+                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1 shrink-0" />
                             </div>
-                          )}
-                        </SelectContent>
-                      </Select>
+                          </SelectTrigger>
+                          <SelectContent className="bg-white max-h-[300px]">
+                            {sendAssetsForWallet.length > 0 ? (
+                              sendAssetsForWallet.map((asset: any) => {
+                                const iconUrl = getCurrencyIconUrl(asset)
+                                const assetNets = getCoinNetworks(asset)
+                                const netLabel = walletNetwork || assetNets[0]?.label || assetNets[0]?.network || ""
+                                return (
+                                  <SelectItem key={asset.symbol} value={asset.symbol} className="bg-white hover:bg-gray-50">
+                                    <div className="flex items-center gap-2 w-full">
+                                      <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                        {iconUrl && <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} />}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium">{asset.symbol}</div>
+                                        {netLabel && <div className="text-[10px] text-gray-400">{netLabel}</div>}
+                                      </div>
+                                    </div>
+                                  </SelectItem>
+                                )
+                              })
+                            ) : (
+                              <div className="p-4 text-center text-sm text-gray-500">
+                                {isWalletConnected
+                                  ? `No supported tokens on ${walletNetwork || "this network"}`
+                                  : "Connect a wallet to see supported tokens"}
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                   </div>
 
@@ -2354,176 +2358,180 @@ export function TransactionForms({  onBack,
               {/* Swap Tab — Step 1 */}
               {activeTab === "swap" && swapStep === 1 && (
                 <div className="space-y-2">
-                  {/* YOU SELL */}
-                  <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">You Sell</span>
-                      <div className="flex items-center gap-2">
+                  {/* YOU SELL + RATE + YOU BUY — combined card */}
+                  <div className="bg-gray-50 rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">You Sell</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-gray-500 font-medium">
+                            {getBalanceForSymbol(fromCurrency) > 0
+                              ? `${formatBalance(getBalanceForSymbol(fromCurrency))} ${fromCurrency}`
+                              : `0 ${fromCurrency || ""}`}
+                          </span>
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 rounded-lg bg-[#6EBE44] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#63aa3d] active:bg-[#5a9836] transition-colors"
+                            onClick={() => setFromAmount(getBalanceForSymbol(fromCurrency) > 0 ? getBalanceForSymbol(fromCurrency).toString() : "")}
+                          >
+                            <span className="text-[9px] font-bold tracking-wider">MAX</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={fromAmount}
+                            onChange={(e) => setFromAmount(e.target.value)}
+                            className="text-3xl font-bold text-gray-900 bg-transparent border-0 p-0 w-full focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          />
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {swapToAmount > 0
+                              ? `≈ ${swapToAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${toCurrency}`
+                              : `0 ${toCurrency}`}
+                          </p>
+                        </div>
+                        <Select value={fromCurrency} onValueChange={setFromCurrency}>
+                          <SelectTrigger className="border border-gray-200 rounded-xl px-2.5 py-1.5 h-auto bg-white shadow-sm w-fit max-w-[65%] min-w-[84px] ml-auto shrink-0 focus:ring-0 [&>svg]:hidden">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="relative w-6 h-6 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                <span className="text-[9px] font-bold text-blue-600">{fromCurrency?.slice(0, 2) || "--"}</span>
+                                {(() => {
+                                  const iconUrl = getCurrencyIconUrl(swapFromCrypto || { symbol: fromCurrency })
+                                  return iconUrl ? <img src={iconUrl} alt={fromCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} /> : null
+                                })()}
+                              </div>
+                              <div className="flex flex-col items-start leading-tight min-w-0">
+                                <span className="font-bold text-gray-900 text-sm truncate max-w-full">{fromCurrency || "Select"}</span>
+                                {swapFromNetwork && <span className="text-[10px] text-gray-400 font-medium truncate max-w-full">{swapFromNetwork}</span>}
+                              </div>
+                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1 shrink-0" />
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent className="bg-white max-h-[300px]">
+                            {cryptoNativeAssetsForWallet.length > 0 ? (
+                              cryptoNativeAssetsForWallet.map((asset: any) => {
+                                const iconUrl = getCurrencyIconUrl(asset)
+                                const nets = getCoinNetworks(asset)
+                                const netLabel = walletNetwork || nets[0]?.label || nets[0]?.network || ""
+                                return (
+                                  <SelectItem key={asset.symbol} value={asset.symbol} className="bg-white hover:bg-gray-50">
+                                    <div className="flex items-center gap-2 w-full">
+                                      <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                        {iconUrl ? <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} /> : <span className="text-[10px] font-bold text-gray-600">{asset.symbol?.slice(0, 2)}</span>}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium">{asset.symbol}</div>
+                                        {netLabel && <div className="text-[10px] text-gray-400">{netLabel}</div>}
+                                      </div>
+                                    </div>
+                                  </SelectItem>
+                                )
+                              })
+                            ) : (
+                              <div className="p-4 text-center text-sm text-gray-500">
+                                {isWalletConnected ? `No supported tokens on ${walletNetwork || "this network"}` : "Connect a wallet to see tokens"}
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Exchange rate divider + swap direction toggle */}
+                    <div className="relative flex items-center px-3">
+                      <div className="flex-1 border-t border-gray-200" />
+                      <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-3 py-1 mx-2 text-[11px] text-gray-600 font-medium shadow-sm shrink-0">
+                        <RefreshCwIcon className={`h-3 w-3 text-[#19B17A] ${swapCoinRateLoading ? "animate-spin" : ""}`} />
+                        <span>
+                          {swapCoinRateLoading
+                            ? "Fetching rate…"
+                            : `1 ${fromCurrency || "--"} = ${swapExchangeRate ? swapExchangeRate.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "--"} ${toCurrency || "--"}`}
+                        </span>
+                        {!swapCoinRateLoading && (
+                          <span className="bg-[#19B17A] text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold">
+                            {Math.floor(swapRateCountdown / 60)}:{String(swapRateCountdown % 60).padStart(2, "0")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex-1 border-t border-gray-200" />
+                      <button
+                        type="button"
+                        onClick={handleSwapCurrencies}
+                        className="absolute right-3 w-7 h-7 rounded-full bg-white border-2 border-gray-200 shadow flex items-center justify-center hover:bg-gray-50 transition-colors"
+                      >
+                        <ArrowUpDownIcon className="h-3 w-3 text-[#19B17A]" />
+                      </button>
+                    </div>
+
+                    {/* YOU BUY */}
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">You Buy</span>
                         <span className="text-[11px] text-gray-500 font-medium">
-                          {getBalanceForSymbol(fromCurrency) > 0
-                            ? `${formatBalance(getBalanceForSymbol(fromCurrency))} ${fromCurrency}`
-                            : `0 ${fromCurrency || ""}`}
+                          {getBalanceForSymbol(toCurrency) > 0
+                            ? `${formatBalance(getBalanceForSymbol(toCurrency))} ${toCurrency}`
+                            : `0 ${toCurrency || ""}`}
                         </span>
-                        <button
-                          type="button"
-                          className="flex items-center gap-1 rounded-lg bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-gray-700 active:bg-gray-800 transition-colors"
-                          onClick={() => setFromAmount(getBalanceForSymbol(fromCurrency) > 0 ? getBalanceForSymbol(fromCurrency).toString() : "")}
-                        >
-                          <span className="rounded bg-white/20 px-1 py-0.5 text-[9px] font-bold tracking-wider">MAX</span>
-                        </button>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          value={fromAmount}
-                          onChange={(e) => setFromAmount(e.target.value)}
-                          className="text-3xl font-bold border-0 p-0 h-auto bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
-                        />
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {swapToAmount > 0
-                            ? `≈ ${swapToAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${toCurrency}`
-                            : `0 ${toCurrency}`}
-                        </p>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-3xl font-bold text-[#19B17A]">
+                            {swapToAmount > 0
+                              ? swapToAmount.toLocaleString(undefined, { maximumFractionDigits: swapToAmount >= 1 ? 2 : 4 })
+                              : "0"}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {swapExchangeRate ? `1 ${fromCurrency} = ${swapExchangeRate.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${toCurrency}` : "--"}
+                          </p>
+                        </div>
+                        <Select value={toCurrency} onValueChange={setToCurrency}>
+                          <SelectTrigger className="border border-gray-200 rounded-xl px-2.5 py-1.5 h-auto bg-white shadow-sm w-fit max-w-[65%] min-w-[84px] ml-auto shrink-0 focus:ring-0 [&>svg]:hidden">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="relative w-6 h-6 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                <span className="text-[9px] font-bold text-green-600">{toCurrency?.slice(0, 2) || "--"}</span>
+                                {(() => {
+                                  const iconUrl = getCurrencyIconUrl(swapToCrypto || { symbol: toCurrency })
+                                  return iconUrl ? <img src={iconUrl} alt={toCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} /> : null
+                                })()}
+                              </div>
+                              <div className="flex flex-col items-start leading-tight min-w-0">
+                                <span className="font-bold text-gray-900 text-sm truncate max-w-full">{toCurrency || "Select"}</span>
+                                {swapToNetwork && <span className="text-[10px] text-gray-400 font-medium truncate max-w-full">{swapToNetwork}</span>}
+                              </div>
+                              <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1 shrink-0" />
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent className="bg-white max-h-[300px]">
+                            {swapToOptions.length > 0 ? (
+                              swapToOptions.map((asset: any) => {
+                                const iconUrl = getCurrencyIconUrl(asset)
+                                const nets = getCoinNetworks(asset)
+                                const netLabel = walletNetwork || nets[0]?.label || nets[0]?.network || ""
+                                return (
+                                  <SelectItem key={asset.symbol} value={asset.symbol} className="bg-white hover:bg-gray-50">
+                                    <div className="flex items-center gap-2 w-full">
+                                      <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                                        {iconUrl ? <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} /> : <span className="text-[10px] font-bold text-gray-600">{asset.symbol?.slice(0, 2)}</span>}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium">{asset.symbol}</div>
+                                        {netLabel && <div className="text-[10px] text-gray-400">{netLabel}</div>}
+                                      </div>
+                                    </div>
+                                  </SelectItem>
+                                )
+                              })
+                            ) : (
+                              <div className="p-4 text-center text-sm text-gray-500">
+                                {swapAssetsForSelectedNetwork.length > 0 ? "No other tokens to swap to." : isWalletConnected ? `No tokens on ${walletNetwork || "this network"}` : "Connect a wallet to see tokens"}
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <Select value={fromCurrency} onValueChange={setFromCurrency}>
-                        <SelectTrigger className="border border-gray-200 rounded-xl px-3 py-2.5 h-auto bg-white shadow-sm w-full max-w-[40%] ml-auto focus:ring-0 [&>svg]:hidden">
-                          <div className="flex items-center gap-2">
-                            <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                              <span className="text-[9px] font-bold text-blue-600">{fromCurrency?.slice(0, 2) || "--"}</span>
-                              {(() => {
-                                const iconUrl = getCurrencyIconUrl(swapFromCrypto || { symbol: fromCurrency })
-                                return iconUrl ? <img src={iconUrl} alt={fromCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} /> : null
-                              })()}
-                            </div>
-                            <div className="flex flex-col items-start leading-tight">
-                              <span className="font-bold text-gray-900 text-sm">{fromCurrency || "Select"}</span>
-                              {swapFromNetwork && <span className="text-[10px] text-gray-400 font-medium">{swapFromNetwork}</span>}
-                            </div>
-                            <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1" />
-                          </div>
-                        </SelectTrigger>
-                        <SelectContent className="bg-white max-h-[300px]">
-                          {cryptoNativeAssetsForWallet.length > 0 ? (
-                            cryptoNativeAssetsForWallet.map((asset: any) => {
-                              const iconUrl = getCurrencyIconUrl(asset)
-                              const nets = getCoinNetworks(asset)
-                              const netLabel = walletNetwork || nets[0]?.label || nets[0]?.network || ""
-                              return (
-                                <SelectItem key={asset.symbol} value={asset.symbol} className="bg-white hover:bg-gray-50">
-                                  <div className="flex items-center gap-2 w-full">
-                                    <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                                      {iconUrl ? <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} /> : <span className="text-[10px] font-bold text-gray-600">{asset.symbol?.slice(0, 2)}</span>}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-sm font-medium">{asset.symbol}</div>
-                                      {netLabel && <div className="text-[10px] text-gray-400">{netLabel}</div>}
-                                    </div>
-                                  </div>
-                                </SelectItem>
-                              )
-                            })
-                          ) : (
-                            <div className="p-4 text-center text-sm text-gray-500">
-                              {isWalletConnected ? `No supported tokens on ${walletNetwork || "this network"}` : "Connect a wallet to see tokens"}
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  {/* Exchange Rate Pill + swap button */}
-                  <div className="flex justify-center relative">
-                    <div className="flex items-center gap-2 bg-gray-100 rounded-full px-4 py-1.5 text-xs text-gray-600 font-medium">
-                      <RefreshCwIcon className={`h-3 w-3 text-[#19B17A] ${swapCoinRateLoading ? "animate-spin" : ""}`} />
-                      <span>
-                        {swapCoinRateLoading
-                          ? "Fetching rate…"
-                          : `1 ${fromCurrency || "--"} = ${swapExchangeRate ? swapExchangeRate.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "--"} ${toCurrency || "--"}`}
-                      </span>
-                      {!swapCoinRateLoading && (
-                        <span className="bg-[#19B17A] text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-1">
-                          {Math.floor(swapRateCountdown / 60)}:{String(swapRateCountdown % 60).padStart(2, "0")}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleSwapCurrencies}
-                      className="absolute right-0 w-7 h-7 rounded-full bg-white border-2 border-gray-200 shadow flex items-center justify-center hover:bg-gray-50 transition-colors"
-                    >
-                      <ArrowUpDownIcon className="h-3 w-3 text-[#19B17A]" />
-                    </button>
-                  </div>
-
-                  {/* YOU BUY */}
-                  <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">You Buy</span>
-                      <span className="text-[11px] text-gray-500 font-medium">
-                        {getBalanceForSymbol(toCurrency) > 0
-                          ? `${formatBalance(getBalanceForSymbol(toCurrency))} ${toCurrency}`
-                          : `0 ${toCurrency || ""}`}
-                      </span>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-3xl font-bold text-[#19B17A]">
-                          {swapToAmount > 0
-                            ? swapToAmount.toLocaleString(undefined, { maximumFractionDigits: swapToAmount >= 1 ? 2 : 4 })
-                            : "0"}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {swapExchangeRate ? `1 ${fromCurrency} = ${swapExchangeRate.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${toCurrency}` : "--"}
-                        </p>
-                      </div>
-                      <Select value={toCurrency} onValueChange={setToCurrency}>
-                        <SelectTrigger className="border border-gray-200 rounded-xl px-3 py-2.5 h-auto bg-white shadow-sm w-full max-w-[40%] ml-auto focus:ring-0 [&>svg]:hidden">
-                          <div className="flex items-center gap-2">
-                            <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                              <span className="text-[9px] font-bold text-green-600">{toCurrency?.slice(0, 2) || "--"}</span>
-                              {(() => {
-                                const iconUrl = getCurrencyIconUrl(swapToCrypto || { symbol: toCurrency })
-                                return iconUrl ? <img src={iconUrl} alt={toCurrency} className="absolute inset-0 w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = "none" }} /> : null
-                              })()}
-                            </div>
-                            <div className="flex flex-col items-start leading-tight">
-                              <span className="font-bold text-gray-900 text-sm">{toCurrency || "Select"}</span>
-                              {swapToNetwork && <span className="text-[10px] text-gray-400 font-medium">{swapToNetwork}</span>}
-                            </div>
-                            <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400 ml-1" />
-                          </div>
-                        </SelectTrigger>
-                        <SelectContent className="bg-white max-h-[300px]">
-                          {swapToOptions.length > 0 ? (
-                            swapToOptions.map((asset: any) => {
-                              const iconUrl = getCurrencyIconUrl(asset)
-                              const nets = getCoinNetworks(asset)
-                              const netLabel = walletNetwork || nets[0]?.label || nets[0]?.network || ""
-                              return (
-                                <SelectItem key={asset.symbol} value={asset.symbol} className="bg-white hover:bg-gray-50">
-                                  <div className="flex items-center gap-2 w-full">
-                                    <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                                      {iconUrl ? <img src={iconUrl} alt={asset.symbol} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none" }} /> : <span className="text-[10px] font-bold text-gray-600">{asset.symbol?.slice(0, 2)}</span>}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-sm font-medium">{asset.symbol}</div>
-                                      {netLabel && <div className="text-[10px] text-gray-400">{netLabel}</div>}
-                                    </div>
-                                  </div>
-                                </SelectItem>
-                              )
-                            })
-                          ) : (
-                            <div className="p-4 text-center text-sm text-gray-500">
-                              {swapAssetsForSelectedNetwork.length > 0 ? "No other tokens to swap to." : isWalletConnected ? `No tokens on ${walletNetwork || "this network"}` : "Connect a wallet to see tokens"}
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
                     </div>
                   </div>
 

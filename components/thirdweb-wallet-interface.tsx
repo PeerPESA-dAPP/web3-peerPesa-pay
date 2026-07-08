@@ -167,6 +167,7 @@ export function ThirdwebWalletInterface() {
   const { isMiniPay, miniPayVersion, miniPayCheckComplete } = useMiniPay()
   const [activeTab, setActiveTab] = useState("overview")
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false)
+  const [currencySearchQuery, setCurrencySearchQuery] = useState("")
   
   // Parse swap URL params (rhino.fi style: ?mode=pay&chainIn=ETHEREUM&chainOut=ARBITRUM&token=USDT&tokenOut=USDC)
   const urlSwapParams = (() => {
@@ -1690,23 +1691,23 @@ export function ThirdwebWalletInterface() {
       <div className="max-w-md mx-auto min-h-screen bg-white pb-20">
         {/* Balance Card */}
         {!showNotifications && !showTerms && !showPrivacy && <div className="px-6 pt-8">
-          <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative">
-            <CardContent className="pt-[10px] pb-[10px] px-4 text-center">
-              
+          <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 relative py-0">
+            <CardContent className="py-4 px-4 text-center">
+
               {mounted && ((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
-                <div className="mb-2 flex items-center justify-center">
+                <div className="mb-1.5 flex items-center justify-center">
                   {isMiniPay && address ? (
-                    <Badge variant="outline" className="text-[#19B17A] border-[#19B17A]">
+                    <Badge variant="outline" className="text-[#19B17A] border-[#19B17A] bg-white/60">
                       <div className="w-2 h-2 bg-[#19B17A] rounded-full mr-2"></div>
                       Celo Mainnet
                     </Badge>
                   ) : walletType === 'stellar' ? (
-                    <Badge variant="outline" className="text-blue-600 border-blue-200">
+                    <Badge variant="outline" className="text-blue-600 border-blue-200 bg-white/60">
                       <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
                       Mainnet
                     </Badge>
                   ) : (
-                    <Badge variant="outline" className="text-green-600 border-green-200">
+                    <Badge variant="outline" className="text-green-600 border-green-200 bg-white/60">
                       <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
                       {getNetworkName(chain ? (chain.chainId as number) : undefined)}
                     </Badge>
@@ -1716,7 +1717,7 @@ export function ThirdwebWalletInterface() {
 
               {/* Wallet Address with Copy Icon */}
               {mounted && ((isConnected && address) || (walletType === 'stellar' && stellarAddress) || (isMiniPay && address)) && (
-                <div className="flex items-center justify-center gap-2 mb-2">
+                <div className="flex items-center justify-center gap-1.5 mb-1.5">
                   <p className="text-xs text-gray-600 font-mono">
                     {isMiniPay && address
                       ? `${address.slice(0, 6)}...${address.slice(-6)}`
@@ -1759,31 +1760,46 @@ export function ThirdwebWalletInterface() {
                   </div>
               )}
               
-              <div className="flex items-center justify-center gap-2">
-                  <p className="text-[18px] font-bold text-gray-900">
+              <div className="flex items-center justify-center gap-1.5">
+                  <p className="text-xl font-bold text-gray-900 tracking-tight">
                     {totalBalanceValue.toFixed(2) ?? "0.00"} {selectedCurrency || "USD"}
                   </p>
-                  <div className="flex items-center justify-center gap-2">
+                  <div className="flex items-center justify-center">
                     <div className="relative" ref={currencyDropdownRef}>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2 text-xs border border-black text-black hover:text-black hover:border-black cursor-pointer"
+                        className="h-6 w-6 p-0 rounded-full text-gray-500 hover:text-[#19B17A] hover:bg-[#19B17A]/10 cursor-pointer"
                         onClick={() => {
                           setShowCurrencyDropdown(!showCurrencyDropdown)
+                          setCurrencySearchQuery("")
                           // Fetch only when dropdown opens and currencies are empty
                           if (!showCurrencyDropdown && !currencyLoading && currencies.length === 0) {
                             refetchCurrencies()
                           }
                         }}
                       >
-                        <ChevronDownIcon className="h-3 w-3 text-black" />
+                        <ChevronDownIcon className="h-3.5 w-3.5" />
                       </Button>
 
 
                       {showCurrencyDropdown && (
 
-                        <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[120px] max-h-[200px] overflow-y-auto">
+                        <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[140px] max-h-[240px] flex flex-col overflow-hidden">
+                          {!currencyLoading && !currencyError && (
+                            <div className="p-1.5 border-b border-gray-100 sticky top-0 bg-white">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={currencySearchQuery}
+                                onChange={(e) => setCurrencySearchQuery(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                placeholder="Search currency..."
+                                className="w-full px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#19B17A] focus:border-[#19B17A]"
+                              />
+                            </div>
+                          )}
+                          <div className="overflow-y-auto">
                           {currencyLoading ? (
                             <div className="px-2 py-1.5 text-xs text-gray-500">
                               Loading...
@@ -1808,6 +1824,8 @@ export function ThirdwebWalletInterface() {
                                 "USD", "EUR", "GBP", "KES", "UGX", "TZS", "GHS", "NGN", "ZAR", "ETB", "AED", "ZMW", "JPY"
                               ])
 
+                              const query = currencySearchQuery.trim().toUpperCase()
+
                               const fiatCurrencies = (currencies || []).filter((currency: any) => {
                                 const tokenType = (currency?.token_type ?? "").toString().toLowerCase()
                                 const symbol = (currency?.symbol ?? currency?.code ?? "").toString().toUpperCase()
@@ -1817,12 +1835,18 @@ export function ThirdwebWalletInterface() {
                                   currency?.status === true ||
                                   currency?.isActive === true
 
-                                return isActive && (tokenType === "fiat" || FIAT_CODES.has(symbol))
+                                if (!isActive || (tokenType !== "fiat" && !FIAT_CODES.has(symbol))) return false
+                                if (!query) return true
+
+                                const name = (currency?.name ?? "").toString().toUpperCase()
+                                return symbol.includes(query) || name.includes(query)
                               })
 
                               if (fiatCurrencies.length === 0) {
                                 return (
-                                  <div className="px-2 py-1.5 text-xs text-gray-500">No fiat currencies available</div>
+                                  <div className="px-2 py-1.5 text-xs text-gray-500">
+                                    {query ? `No currencies match "${currencySearchQuery}"` : "No fiat currencies available"}
+                                  </div>
                                 )
                               }
 
@@ -1833,7 +1857,7 @@ export function ThirdwebWalletInterface() {
                                 return (
                                   <button
                                     key={code ?? symbol}
-                                    className={`w-full px-2 py-1.5 text-left text-xs hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg cursor-pointer flex items-center gap-2 ${
+                                    className={`w-full px-2 py-1.5 text-left text-xs hover:bg-gray-50 last:rounded-b-lg cursor-pointer flex items-center gap-2 ${
                                       selectedCurrency === symbol || selectedCurrency === code ? "bg-blue-50 text-blue-700" : "text-gray-900"
                                     }`}
                                     onClick={() => {
@@ -1862,6 +1886,7 @@ export function ThirdwebWalletInterface() {
                               })
                             })()
                           )}
+                          </div>
                         </div>
 
                       )}
