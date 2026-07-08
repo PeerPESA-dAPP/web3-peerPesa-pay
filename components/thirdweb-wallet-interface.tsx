@@ -81,6 +81,7 @@ import {
   ZapIcon,
   ShieldCheckIcon,
   ChevronRightIcon,
+  ExternalLinkIcon,
 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { useMiniPay } from "@/hooks/use-minipay"
@@ -122,6 +123,41 @@ interface ActivityFetchResult {
   nextCursor?: string | null
   nextBlock?: number | null
   mode: "stellar" | "evm-explorer" | "evm-rpc"
+}
+
+// Amounts under 1 unit show 4 decimals so small balances aren't rounded to 0.00
+function formatActivityAmount(amount: number): string {
+  const decimals = Math.abs(amount) >= 1 ? 2 : 4
+  return amount.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+}
+
+const EVM_EXPLORER_BASE_URLS: Record<string, string> = {
+  Ethereum: "https://etherscan.io",
+  Polygon: "https://polygonscan.com",
+  Arbitrum: "https://arbiscan.io",
+  Optimism: "https://optimistic.etherscan.io",
+  Base: "https://basescan.org",
+  BSC: "https://bscscan.com",
+  Blast: "https://blastscan.io",
+  Avalanche: "https://snowtrace.io",
+  Celo: "https://celoscan.io",
+  "zkSync Era": "https://explorer.zksync.io",
+}
+
+function getExplorerBaseUrl(network: string): string | null {
+  if (network === "Stellar") return "https://stellar.expert/explorer/public"
+  return EVM_EXPLORER_BASE_URLS[network] || null
+}
+
+function getExplorerTxUrl(network: string, hash: string): string | null {
+  const base = getExplorerBaseUrl(network)
+  return base && hash ? `${base}/tx/${hash}` : null
+}
+
+function getExplorerAddressUrl(network: string, address: string): string | null {
+  const base = getExplorerBaseUrl(network)
+  if (!base || !address) return null
+  return network === "Stellar" ? `${base}/account/${address}` : `${base}/address/${address}`
 }
 
 export function ThirdwebWalletInterface() {
@@ -213,6 +249,7 @@ export function ThirdwebWalletInterface() {
   const initialCurrenciesFetchedRef = useRef(false)
   const transactionsLoadMoreRef = useRef<HTMLDivElement>(null)
   const overviewTxLoadMoreRef = useRef<HTMLDivElement>(null)
+  const notificationsLoadMoreRef = useRef<HTMLDivElement>(null)
   const [overviewTxVisible, setOverviewTxVisible] = useState(5)
   const [txTabVisible, setTxTabVisible] = useState(5)
 
@@ -807,7 +844,30 @@ export function ThirdwebWalletInterface() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    if (isNaN(date.getTime())) return ""
+
+    const now = new Date()
+    const diffMin = Math.floor((now.getTime() - date.getTime()) / 60000)
+    const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+
+    if (diffMin < 1) return "Just now"
+    if (diffMin < 60) return `${diffMin}m ago`
+
+    const isSameDay = (a: Date, b: Date) =>
+      a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
+    if (isSameDay(date, now)) return `Today, ${time}`
+
+    const yesterday = new Date(now)
+    yesterday.setDate(now.getDate() - 1)
+    if (isSameDay(date, yesterday)) return `Yesterday, ${time}`
+
+    const datePart = date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      ...(date.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+    })
+    return `${datePart}, ${time}`
   }
 
   // Currency icon from public/flag (e.g. USD.png, usdc.png, ugx.png)
@@ -1050,7 +1110,7 @@ export function ThirdwebWalletInterface() {
       const from = String(tx.from || '').toLowerCase()
       const isOut = from === lowerAddress
 
-      if (hasInput && hashesWithTokens.has(hash)) {
+      if (hasInput && hashesWithTokens.has(hash) && amount > 0) {
         // Contract interaction that moved tokens → swap
         const key = `${hash}_swap`
         if (!seen.has(key)) {
@@ -1205,6 +1265,32 @@ export function ThirdwebWalletInterface() {
     observer.observe(sentinel)
     return () => observer.disconnect()
   }, [activeTab, walletActivity.length, overviewTxVisible])
+
+  // Activities panel (bell icon): lazy-load more on scroll
+  useEffect(() => {
+    if (!showNotifications) return
+    const hasMoreLocal = walletActivity.length > notificationLimit
+    if (!hasMoreLocal && !walletActivityHasMore) return
+    const sentinel = notificationsLoadMoreRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (entry?.isIntersecting && !walletActivityLoading && !walletActivityLoadingMore) {
+          if (walletActivity.length > notificationLimit) {
+            setNotificationLimit((prev) => prev + 8)
+          } else {
+            loadMoreWalletActivity()
+          }
+        }
+      },
+      { root: null, rootMargin: "220px", threshold: 0.1 }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [showNotifications, walletActivityHasMore, walletActivityLoading, walletActivityLoadingMore, walletActivity.length, notificationLimit])
 
   useEffect(() => {
     if (activeTab === "overview" || activeTab === "transactions" || activeTab === "notifications" || showNotifications) {
@@ -1918,45 +2004,73 @@ export function ThirdwebWalletInterface() {
             const isToday = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()
             const label = isToday ? "Today" : d.toLocaleDateString()
             return (
-              <div key={date} className="mb-6">
-                <div className="text-xs font-semibold text-gray-500 mb-2 pl-1">{label}</div>
-                <div className="space-y-2">
+              <div key={date} className="mb-4">
+                <div className="text-xs font-semibold text-gray-500 mb-1.5 pl-1">{label}</div>
+                <div className="space-y-1.5">
                   {items.map((tx) => {
                     const { Icon, bg, color } = getActivityIcon(tx.type, tx.direction)
-                    const amt = tx.amount > 0
-                      ? `${tx.amount.toPrecision(6).replace(/\.?0+$/, '')} ${tx.asset}`
-                      : tx.asset
-                    const peer = tx.counterparty
-                      ? `${tx.counterparty.slice(0, 8)}…${tx.counterparty.slice(-6)}`
-                      : ''
+                    const amt = tx.amount > 0 ? `${formatActivityAmount(tx.amount)} ${tx.asset}` : tx.asset
+                    const peerLabel = tx.counterparty ? `${tx.counterparty.slice(0, 6)}…${tx.counterparty.slice(-4)}` : ''
+                    const peerUrl = tx.counterparty ? getExplorerAddressUrl(tx.network, tx.counterparty) : null
+                    const hashUrl = getExplorerTxUrl(tx.network, tx.hash)
+                    const preposition = tx.type === 'swap' ? 'via' : tx.direction === 'out' ? 'to' : 'from'
                     const title = tx.type === 'swap'
                       ? `Swap — ${tx.asset}`
                       : tx.direction === 'out'
                         ? `Sent ${tx.asset}`
                         : `Received ${tx.asset}`
-                    const description = tx.type === 'swap'
-                      ? `${amt}${peer ? ` via ${peer}` : ''}`
-                      : tx.direction === 'out'
-                        ? `${amt}${peer ? ` → ${peer}` : ''}`
-                        : `${amt}${peer ? ` from ${peer}` : ''}`
                     const time = tx.timestamp
                       ? new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                       : ''
                     const failed = tx.status === 'failed'
                     return (
-                      <div key={tx.id} className={`bg-white rounded-xl shadow-sm border p-4 flex items-start gap-3 ${failed ? 'border-red-100 opacity-70' : 'border-gray-100'}`}>
-                        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${bg}`}>
-                          <Icon className={`h-5 w-5 ${color}`} />
+                      <div key={tx.id} className={`bg-white rounded-xl shadow-sm border p-3 flex items-center gap-2.5 ${failed ? 'border-red-100 opacity-70' : 'border-gray-100'}`}>
+                        <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${bg}`}>
+                          <Icon className={`h-4 w-4 ${color}`} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="font-medium text-gray-900 truncate">{title}</p>
+                            <p className="font-medium text-gray-900 text-sm truncate">{title}</p>
                             <span className="text-xs text-gray-400 shrink-0">{time}</span>
                           </div>
-                          <p className="text-sm text-gray-500 mt-0.5 truncate">{description}</p>
-                          {failed && (
-                            <span className="inline-block mt-1 text-[11px] font-medium text-red-500 bg-red-50 px-1.5 py-0.5 rounded">Failed</span>
-                          )}
+                          <div className="flex items-center flex-wrap gap-x-1 text-xs text-gray-500 mt-0.5">
+                            <span>{amt}</span>
+                            {peerLabel && (
+                              <>
+                                <span>{preposition}</span>
+                                {peerUrl ? (
+                                  <a
+                                    href={peerUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-blue-500 hover:underline inline-flex items-center gap-0.5"
+                                  >
+                                    {peerLabel}<ExternalLinkIcon className="h-2.5 w-2.5" />
+                                  </a>
+                                ) : (
+                                  <span>{peerLabel}</span>
+                                )}
+                              </>
+                            )}
+                            {hashUrl && (
+                              <>
+                                <span>·</span>
+                                <a
+                                  href={hashUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-blue-500 hover:underline inline-flex items-center gap-0.5"
+                                >
+                                  Tx<ExternalLinkIcon className="h-2.5 w-2.5" />
+                                </a>
+                              </>
+                            )}
+                            {failed && (
+                              <span className="text-[11px] font-medium text-red-500 bg-red-50 px-1.5 py-0.5 rounded ml-1">Failed</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )
@@ -1967,20 +2081,8 @@ export function ThirdwebWalletInterface() {
           })}
 
           {(walletActivity.length > notificationLimit || walletActivityHasMore) && (
-            <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md px-6 pb-4 pt-2 bg-white border-t border-gray-100">
-              <Button
-                className="w-full bg-[#19B17A] hover:bg-[#158f68] text-white cursor-pointer"
-                disabled={walletActivityLoadingMore}
-                onClick={() => {
-                  if (walletActivity.length > notificationLimit) {
-                    setNotificationLimit((prev) => prev + 8)
-                  } else {
-                    loadMoreWalletActivity()
-                  }
-                }}
-              >
-                {walletActivityLoadingMore ? 'Loading…' : 'Load More'}
-              </Button>
+            <div ref={notificationsLoadMoreRef} className="py-4 text-center text-sm text-gray-500">
+              {walletActivityLoadingMore ? 'Loading more…' : 'Scroll to load more'}
             </div>
           )}
         </div>
@@ -2334,7 +2436,7 @@ export function ThirdwebWalletInterface() {
                       </div>
                       <div className="text-right flex flex-col items-end">
                         <p className="font-medium text-gray-900">
-                          {item.direction === "in" ? "+" : "-"}{(() => { const d = item.amount >= 1 ? 2 : 4; return item.amount.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) })()} {item.asset}
+                          {item.direction === "in" ? "+" : "-"}{formatActivityAmount(item.amount)} {item.asset}
                         </p>
                         <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
@@ -2402,37 +2504,64 @@ export function ThirdwebWalletInterface() {
                   </div>
                 ) : walletActivity.length > 0 ? (
                   <>
-                  {walletActivity.slice(0, txTabVisible).map((item, index) => (
+                  {walletActivity.slice(0, txTabVisible).map((item, index) => {
+                    const peerLabel = item.counterparty ? `${item.counterparty.slice(0, 6)}…${item.counterparty.slice(-4)}` : ''
+                    const peerUrl = item.counterparty ? getExplorerAddressUrl(item.network, item.counterparty) : null
+                    const hashUrl = getExplorerTxUrl(item.network, item.hash)
+                    return (
                     <div
                       key={`${item.id}-${index}`}
-                      className={`p-4 flex items-center justify-between bg-gray-50 ${
+                      className={`p-3 flex items-center justify-between bg-gray-50 ${
                         index !== Math.min(walletActivity.length, txTabVisible) - 1 ? "border-b border-gray-100" : ""
                       }`}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         {item.type === "swap"
-                          ? <RefreshCwIcon className="h-4 w-4 text-blue-500" />
+                          ? <RefreshCwIcon className="h-4 w-4 text-blue-500 shrink-0" />
                           : item.direction === "out"
-                            ? <ArrowUpIcon className="h-4 w-4 text-red-500" />
-                            : <ArrowDownIcon className="h-4 w-4 text-green-500" />
+                            ? <ArrowUpIcon className="h-4 w-4 text-red-500 shrink-0" />
+                            : <ArrowDownIcon className="h-4 w-4 text-green-500 shrink-0" />
                         }
-                        <div>
-                          <p className="font-medium text-gray-900 capitalize">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 capitalize truncate">
                             {item.type === "swap" ? `Swap ${item.asset}` : item.direction === "out" ? `Sent ${item.asset}` : `Received ${item.asset}`}
                           </p>
-                          <p className="text-sm text-gray-600">{formatDate(item.timestamp)}</p>
+                          <div className="flex items-center flex-wrap gap-x-1 text-xs text-gray-500">
+                            <span>{formatDate(item.timestamp)}</span>
+                            {peerLabel && (
+                              <>
+                                <span>·</span>
+                                {peerUrl ? (
+                                  <a href={peerUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-blue-500 hover:underline">
+                                    {peerLabel}
+                                  </a>
+                                ) : (
+                                  <span>{peerLabel}</span>
+                                )}
+                              </>
+                            )}
+                            {hashUrl && (
+                              <>
+                                <span>·</span>
+                                <a href={hashUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-blue-500 hover:underline inline-flex items-center gap-0.5">
+                                  Tx<ExternalLinkIcon className="h-2.5 w-2.5" />
+                                </a>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right flex flex-col items-end">
-                        <p className="font-medium text-gray-900">
-                          {item.direction === "in" ? "+" : "-"}{(() => { const d = item.amount >= 1 ? 2 : 4; return item.amount.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) })()} {item.asset}
+                      <div className="text-right flex flex-col items-end shrink-0 ml-2">
+                        <p className="text-sm font-medium text-gray-900">
+                          {item.direction === "in" ? "+" : "-"}{formatActivityAmount(item.amount)} {item.asset}
                         </p>
                         <div className="flex items-center justify-end gap-2">
                           {getStatusBadge(item.status)}
                         </div>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                         {(walletActivity.length > txTabVisible || walletActivityHasMore) && (
                           <div className="p-4 bg-gray-50 border-t border-gray-100" ref={transactionsLoadMoreRef}>
                             <div className="text-center text-sm text-gray-600">
@@ -2661,9 +2790,7 @@ export function ThirdwebWalletInterface() {
             >
               <BellIcon className={`h-5 w-5 ${showNotifications ? "text-[#5ea838]" : "text-gray-400"}`} />
               {mounted && walletActivity.length > 0 && (
-                <span className="absolute -top-0.5 right-2 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
-                  {walletActivity.length > 99 ? "99+" : walletActivity.length}
-                </span>
+                <span className="absolute top-0.5 right-3 h-2 w-2 rounded-full bg-red-500" />
               )}
               <span className={`text-[11px] ${showNotifications ? "text-[#5ea838] font-semibold" : "text-gray-500"}`}>Activities</span>
             </button>
